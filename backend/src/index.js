@@ -12,12 +12,11 @@ const connectionRoutes = require('./routes/connection');
 const vipRoutes = require('./routes/vip');
 
 // WebSocket处理器
-const setupWebSocket = require('./services/websocket');
 const { initializeSocketIO } = require('./services/socketService');
 
 // 中间件
 const errorHandler = require('./middleware/errorHandler');
-const rateLimiter = require('./middleware/rateLimiter');
+const { generalLimiter, loginLimiter, connectionLimiter } = require('./middleware/rateLimiter');
 
 dotenv.config();
 
@@ -35,15 +34,15 @@ app.use(helmet());
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(rateLimiter);
+app.use(generalLimiter);
 
 // 静态文件
 app.use('/uploads', express.static('uploads'));
 
-// API路由
-app.use('/api/auth', authRoutes);
+// API路由（登录和连接接口应用更严格的限速）
+app.use('/api/auth', loginLimiter, authRoutes);
 app.use('/api/device', deviceRoutes);
-app.use('/api/connection', connectionRoutes);
+app.use('/api/connection', connectionLimiter, connectionRoutes);
 app.use('/api/vip', vipRoutes);
 
 // 健康检查
@@ -52,10 +51,7 @@ app.get('/health', (req, res) => {
 });
 
 // WebSocket设置
-setupWebSocket(io);
-
-// 初始化信令服务器（用于远程控制）
-initializeSocketIO(server);
+initializeSocketIO(io);
 
 // 错误处理
 app.use(errorHandler);

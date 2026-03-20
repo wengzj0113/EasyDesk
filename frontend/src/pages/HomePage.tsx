@@ -12,10 +12,6 @@ import {
   Divider,
   message,
   Alert,
-  QRCode,
-  Modal,
-  InputNumber,
-  Select,
 } from 'antd';
 import {
   DesktopOutlined,
@@ -29,35 +25,54 @@ import {
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
+import { deviceAPI } from '../services/api';
+import { getSessionDeviceCode, getSessionPassword, setSessionDeviceCode, setSessionPassword } from '../utils/deviceCode';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 const { Password } = Input;
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
-  const { token, user } = useStore();
+  const { token } = useStore();
 
-  // 允许被控状态
   const [allowControl, setAllowControl] = useState(false);
-  const [deviceCode, setDeviceCode] = useState('ABC123');
-  const [tempPassword, setTempPassword] = useState('123456');
+  const [deviceCode, setDeviceCode] = useState('');
+  const [tempPassword, setTempPassword] = useState('');
+  const [loadingCode, setLoadingCode] = useState(false);
 
-  // 远程控制输入
   const [remoteCode, setRemoteCode] = useState('');
   const [remotePassword, setRemotePassword] = useState('');
   const [connecting, setConnecting] = useState(false);
 
-  // 设备信息
-  const [deviceName] = useState('我的电脑');
-  const [connectionStatus, setConnectionStatus] = useState<'offline' | 'online' | 'controlling'>('online');
+  // 加载设备码：登录时从 API 获取，未登录时使用本地会话码
+  useEffect(() => {
+    setConnecting(false); // 重置连接状态（返回首页时）
+    if (token) {
+      setLoadingCode(true);
+      deviceAPI.getDeviceCode()
+        .then((res: any) => {
+          setDeviceCode(res.deviceCode);
+          setTempPassword(res.accessPassword || getSessionPassword());
+          // 同步到 sessionStorage 供 ConnectionPage 使用
+          setSessionDeviceCode(res.deviceCode);
+          setSessionPassword(res.accessPassword || getSessionPassword());
+        })
+        .catch(() => {
+          setDeviceCode(getSessionDeviceCode());
+          setTempPassword(getSessionPassword());
+        })
+        .finally(() => setLoadingCode(false));
+    } else {
+      setDeviceCode(getSessionDeviceCode());
+      setTempPassword(getSessionPassword());
+    }
+  }, [token]);
 
-  // 复制设备码
   const copyDeviceCode = () => {
     navigator.clipboard.writeText(deviceCode);
     message.success('设备码已复制到剪贴板');
   };
 
-  // 开始远程控制
   const handleStartControl = () => {
     if (!remoteCode || remoteCode.length !== 6) {
       message.error('请输入6位设备码');
@@ -68,27 +83,18 @@ const HomePage: React.FC = () => {
       return;
     }
     setConnecting(true);
-    // 跳转到连接页面
-    navigate('/connection', { state: { deviceCode: remoteCode, password: remotePassword } });
+    navigate('/connection', { state: { deviceCode: remoteCode, password: remotePassword, role: 'controller' } });
   };
 
-  // 切换允许控制
   const handleToggleControl = (checked: boolean) => {
     setAllowControl(checked);
-    if (checked) {
-      message.success('已开启允许控制，其他设备可以远程连接');
-    } else {
-      message.info('已关闭允许控制');
-    }
+    message.success(checked ? '已开启允许控制，其他设备可以远程连接' : '已关闭允许控制');
   };
 
   return (
     <div style={{ padding: '0 0 24px 0' }}>
-      {/* 页面标题 */}
       <div style={{ marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>
-          远程控制
-        </Title>
+        <Title level={3} style={{ margin: 0 }}>远程控制</Title>
         <Text type="secondary">发起远程控制或允许其他设备控制本机</Text>
       </div>
 
@@ -96,12 +102,7 @@ const HomePage: React.FC = () => {
         {/* 左侧：允许控制本设备 */}
         <Col xs={24} lg={12}>
           <Card
-            title={
-              <Space>
-                <DesktopOutlined />
-                <span>允许控制本设备</span>
-              </Space>
-            }
+            title={<Space><DesktopOutlined /><span>允许控制本设备</span></Space>}
             style={{ height: '100%' }}
             extra={
               <Switch
@@ -112,7 +113,6 @@ const HomePage: React.FC = () => {
               />
             }
           >
-            {/* 设备状态 */}
             <div style={{ textAlign: 'center', marginBottom: 24 }}>
               <div style={{ marginBottom: 8 }}>
                 <Tag
@@ -122,13 +122,13 @@ const HomePage: React.FC = () => {
                   {allowControl ? '在线 - 等待连接' : '离线'}
                 </Tag>
               </div>
-              <Title level={4} style={{ margin: 0 }}>{deviceName}</Title>
+              <Title level={4} style={{ margin: 0 }}>我的电脑</Title>
               <Text type="secondary">Windows</Text>
             </div>
 
             <Divider />
 
-            {/* 设备码显示 */}
+            {/* 设备码 */}
             <div style={{ marginBottom: 16 }}>
               <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
                 设备码（分享给他人）
@@ -137,19 +137,11 @@ const HomePage: React.FC = () => {
                 <Input
                   value={deviceCode}
                   readOnly
-                  style={{
-                    fontWeight: 'bold',
-                    fontSize: 18,
-                    textAlign: 'center',
-                    letterSpacing: 4,
-                  }}
+                  disabled={loadingCode}
+                  style={{ fontWeight: 'bold', fontSize: 18, textAlign: 'center', letterSpacing: 4 }}
                   size="large"
                 />
-                <Button
-                  size="large"
-                  icon={<CopyOutlined />}
-                  onClick={copyDeviceCode}
-                >
+                <Button size="large" icon={<CopyOutlined />} onClick={copyDeviceCode} disabled={!deviceCode}>
                   复制
                 </Button>
               </Space.Compact>
@@ -157,9 +149,7 @@ const HomePage: React.FC = () => {
 
             {/* 临时密码 */}
             <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                临时密码
-              </Text>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>临时密码</Text>
               <Space.Compact style={{ width: '100%' }}>
                 <Password
                   value={tempPassword}
@@ -170,14 +160,13 @@ const HomePage: React.FC = () => {
                 <Button
                   size="large"
                   icon={<SettingOutlined />}
-                  onClick={() => message.info('密码设置功能开发中')}
+                  onClick={() => navigate('/devices')}
                 >
                   修改
                 </Button>
               </Space.Compact>
             </div>
 
-            {/* 使用提示 */}
             {!token && (
               <Alert
                 message="提示"
@@ -198,57 +187,31 @@ const HomePage: React.FC = () => {
         {/* 右侧：远程控制设备 */}
         <Col xs={24} lg={12}>
           <Card
-            title={
-              <Space>
-                <LinkOutlined />
-                <span>远程控制设备</span>
-              </Space>
-            }
+            title={<Space><LinkOutlined /><span>远程控制设备</span></Space>}
             style={{ height: '100%' }}
           >
-            {/* 连接模式选择 */}
             <div style={{ marginBottom: 24 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                连接方式
-              </Text>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>连接方式</Text>
               <Space>
-                <Tag color="blue" icon={<DesktopOutlined />}>
-                  设备码连接
-                </Tag>
-                {token && (
-                  <Tag icon={<UserOutlined />}>
-                    设备列表
-                  </Tag>
-                )}
+                <Tag color="blue" icon={<DesktopOutlined />}>设备码连接</Tag>
+                {token && <Tag icon={<UserOutlined />}>设备列表</Tag>}
               </Space>
             </div>
 
-            {/* 设备码输入 */}
             <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                对方设备码
-              </Text>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>对方设备码</Text>
               <Input
                 placeholder="请输入6位设备码"
                 value={remoteCode}
                 onChange={(e) => setRemoteCode(e.target.value.toUpperCase())}
                 maxLength={6}
                 size="large"
-                style={{
-                  textTransform: 'uppercase',
-                  letterSpacing: 4,
-                  fontWeight: 'bold',
-                  fontSize: 18,
-                  textAlign: 'center',
-                }}
+                style={{ textTransform: 'uppercase', letterSpacing: 4, fontWeight: 'bold', fontSize: 18, textAlign: 'center' }}
               />
             </div>
 
-            {/* 密码输入 */}
             <div style={{ marginBottom: 24 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                连接密码
-              </Text>
+              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>连接密码</Text>
               <Password
                 placeholder="请输入连接密码"
                 value={remotePassword}
@@ -258,7 +221,6 @@ const HomePage: React.FC = () => {
               />
             </div>
 
-            {/* 连接按钮 */}
             <Button
               type="primary"
               size="large"
@@ -271,7 +233,6 @@ const HomePage: React.FC = () => {
               {connecting ? '正在连接...' : '开始远程控制'}
             </Button>
 
-            {/* 帮助链接 */}
             <div style={{ textAlign: 'center', marginTop: 16 }}>
               <Text type="secondary">
                 不知道设备码？
@@ -281,7 +242,6 @@ const HomePage: React.FC = () => {
               </Text>
             </div>
 
-            {/* 最近连接 */}
             <Divider orientation="left">最近连接</Divider>
             <div style={{ textAlign: 'center', color: '#999', padding: '20px 0' }}>
               <Text type="secondary">暂无最近连接记录</Text>
@@ -290,7 +250,6 @@ const HomePage: React.FC = () => {
         </Col>
       </Row>
 
-      {/* 底部快捷操作 */}
       <Row gutter={[24, 24]} style={{ marginTop: 24 }}>
         <Col xs={24}>
           <Card size="small">

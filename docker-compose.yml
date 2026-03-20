@@ -1,0 +1,77 @@
+version: '3.8'
+
+services:
+  # MongoDB数据库
+  mongodb:
+    image: mongo:7.0
+    container_name: easydesk-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: easydesk
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - easydesk-network
+    restart: unless-stopped
+
+  # Redis缓存
+  redis:
+    image: redis:7-alpine
+    container_name: easydesk-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - easydesk-network
+    restart: unless-stopped
+
+  # 后端服务
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: easydesk-backend
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - MONGODB_URI=mongodb://mongodb:27017/easydesk
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-your-secret-key-change-in-production}
+      - JWT_EXPIRE=7d
+      - CORS_ORIGIN=http://localhost:3000
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - easydesk-network
+    restart: unless-stopped
+
+  # 前端服务
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: easydesk-frontend
+    ports:
+      - "3000:80"
+    environment:
+      - REACT_APP_API_URL=/api
+      - REACT_APP_WS_URL=ws://localhost:3001
+    depends_on:
+      - backend
+    networks:
+      - easydesk-network
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  redis_data:
+
+networks:
+  easydesk-network:
+    driver: bridge

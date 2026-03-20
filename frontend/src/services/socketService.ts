@@ -17,6 +17,7 @@ class SocketService {
   private onSDPOffer: ((data: any) => void) | null = null;
   private onSDPAnswer: ((data: any) => void) | null = null;
   private onICECandidate: ((data: any) => void) | null = null;
+  private onPrepareSDP: ((data: any) => void) | null = null;
   private onControlCommand: ((data: any) => void) | null = null;
   private onDeviceOnline: ((data: any) => void) | null = null;
   private onDeviceOffline: ((data: any) => void) | null = null;
@@ -57,6 +58,7 @@ class SocketService {
       case 'sdp-offer': this.onSDPOffer = callback; break;
       case 'sdp-answer': this.onSDPAnswer = callback; break;
       case 'ice-candidate': this.onICECandidate = callback; break;
+      case 'prepare-sdp': this.onPrepareSDP = callback; break;
       case 'control-command': this.onControlCommand = callback; break;
       case 'device-online': this.onDeviceOnline = callback; break;
       case 'device-offline': this.onDeviceOffline = callback; break;
@@ -106,6 +108,11 @@ class SocketService {
     this.socket.on('ice-candidate', (data) => {
       console.log('ICE Candidate received');
       this.onICECandidate?.(data);
+    });
+
+    this.socket.on('prepare-sdp', (data) => {
+      console.log('Prepare SDP received');
+      this.onPrepareSDP?.(data);
     });
 
     this.socket.on('control-command', (data) => {

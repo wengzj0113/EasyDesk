@@ -45,6 +45,9 @@ module.exports = {
   // WebRTC配置
   webrtc: {
     stunServer: process.env.WEBRTC_STUN_SERVER || 'stun:stun.l.google.com:19302',
+    turnUrl: process.env.TURN_URL || '',
+    turnUsername: process.env.TURN_USERNAME || '',
+    turnCredential: process.env.TURN_CREDENTIAL || '',
   },
 
   // 文件上传配置

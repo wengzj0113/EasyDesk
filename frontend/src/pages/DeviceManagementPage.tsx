@@ -220,9 +220,9 @@ const DeviceManagementPage: React.FC = () => {
           </Button>
         }
       >
-        {devices && devices.length > 0 && devices[0]?.boundDevices?.length > 0 ? (
+        {myDevice && myDevice.boundDevices && myDevice.boundDevices.length > 0 ? (
           <Table
-            dataSource={devices[0].boundDevices}
+            dataSource={myDevice.boundDevices}
             columns={boundColumns}
             rowKey={(record) => record.deviceId._id}
             pagination={false}

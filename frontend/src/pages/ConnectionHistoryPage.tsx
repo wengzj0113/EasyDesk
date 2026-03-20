@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Table, Tag, Typography, Button, Space, Empty, Spin, DatePicker, Row, Col } from 'antd';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Card, Table, Tag, Typography, Button, Space, Empty, Spin, DatePicker, Row, Col, message } from 'antd';
 import { ArrowLeftOutlined, ReloadOutlined, DesktopOutlined, HistoryOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { connectionAPI } from '../services/api';
-import dayjs from 'dayjs';
+import type { RangePickerProps } from 'antd/es/date-picker';
+import type { Dayjs } from 'dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -21,40 +22,46 @@ interface ConnectionRecord {
   startTime: string;
   endTime?: string;
   dataTransferred?: number;
-  quality?: {
-    resolution: string;
-    fps: number;
-    latency: number;
-  };
 }
 
 const ConnectionHistoryPage: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [connections, setConnections] = useState<ConnectionRecord[]>([]);
+  const [dateRange, setDateRange] = useState<[string, string] | null>(null);
+  const [total, setTotal] = useState(0);
+  const [page, setPage] = useState(1);
 
-  useEffect(() => {
-    fetchConnections();
-  }, []);
-
-  const fetchConnections = async () => {
+  const fetchConnections = useCallback(async (p = 1) => {
     setLoading(true);
     try {
-      const res = await connectionAPI.getConnectionStatus();
+      const params: any = { page: p, pageSize: 10 };
+      if (dateRange) {
+        params.startDate = dateRange[0];
+        params.endDate = dateRange[1];
+      }
+      const res: any = await connectionAPI.getHistory(params);
       setConnections(res.connections || []);
+      setTotal(res.pagination?.total || 0);
     } catch (error) {
       console.error('获取连接历史失败:', error);
     } finally {
       setLoading(false);
     }
+  }, [dateRange]);
+
+  useEffect(() => {
+    fetchConnections(1);
+    setPage(1);
+  }, [fetchConnections]);
+
+  const handleDateChange: RangePickerProps['onChange'] = (_, dateStrings) => {
+    setDateRange(dateStrings[0] && dateStrings[1] ? [dateStrings[0], dateStrings[1]] : null);
   };
 
   const formatDuration = (startTime: string, endTime?: string) => {
     if (!endTime) return '-';
-    const start = new Date(startTime).getTime();
-    const end = new Date(endTime).getTime();
-    const duration = Math.floor((end - start) / 1000);
-
+    const duration = Math.floor((new Date(endTime).getTime() - new Date(startTime).getTime()) / 1000);
     if (duration < 60) return `${duration}秒`;
     if (duration < 3600) return `${Math.floor(duration / 60)}分钟`;
     return `${Math.floor(duration / 3600)}小时${Math.floor((duration % 3600) / 60)}分钟`;
@@ -79,12 +86,11 @@ const ConnectionHistoryPage: React.FC = () => {
     },
     {
       title: '设备',
-      dataIndex: ['deviceId', 'deviceName'],
       key: 'device',
       render: (_: any, record: ConnectionRecord) => (
         <Space direction="vertical" size={0}>
           <Text strong>{record.deviceId?.deviceName || '-'}</Text>
-          <Text type="secondary" style={{ fontSize: '12px' }}>
+          <Text type="secondary" style={{ fontSize: 12 }}>
             {record.deviceId?.deviceCode || '-'}
           </Text>
         </Space>
@@ -105,19 +111,14 @@ const ConnectionHistoryPage: React.FC = () => {
       dataIndex: 'status',
       key: 'status',
       render: (status: string) => {
-        const colorMap: Record<string, string> = {
-          connected: 'success',
-          connecting: 'processing',
-          disconnected: 'default',
-          error: 'error'
+        const map: Record<string, { color: string; text: string }> = {
+          connected:    { color: 'success',    text: '已连接' },
+          connecting:   { color: 'processing', text: '连接中' },
+          disconnected: { color: 'default',    text: '已断开' },
+          error:        { color: 'error',      text: '连接失败' },
         };
-        const textMap: Record<string, string> = {
-          connected: '已连接',
-          connecting: '连接中',
-          disconnected: '已断开',
-          error: '连接失败'
-        };
-        return <Tag color={colorMap[status] || 'default'}>{textMap[status] || status}</Tag>;
+        const { color, text } = map[status] || { color: 'default', text: status };
+        return <Tag color={color}>{text}</Tag>;
       },
     },
     {
@@ -138,7 +139,13 @@ const ConnectionHistoryPage: React.FC = () => {
         <Button
           type="link"
           icon={<DesktopOutlined />}
-          onClick={() => message.info('重新连接功能开发中')}
+          onClick={() => {
+            if (record.deviceId?.deviceCode) {
+              navigate('/connection', { state: { deviceCode: record.deviceId.deviceCode, role: 'controller' } });
+            } else {
+              message.warning('无法获取设备信息');
+            }
+          }}
         >
           重连
         </Button>
@@ -146,7 +153,7 @@ const ConnectionHistoryPage: React.FC = () => {
     },
   ];
 
-  if (loading) {
+  if (loading && connections.length === 0) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
         <Spin size="large" tip="加载中..." />
@@ -156,30 +163,24 @@ const ConnectionHistoryPage: React.FC = () => {
 
   return (
     <div style={{ padding: '50px', maxWidth: 1200, margin: '0 auto' }}>
-      <Button
-        icon={<ArrowLeftOutlined />}
-        onClick={() => navigate('/')}
-        style={{ marginBottom: '24px' }}
-      >
+      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ marginBottom: 24 }}>
         返回首页
       </Button>
 
       <Title level={3}>
-        <HistoryOutlined style={{ marginRight: '8px' }} />
+        <HistoryOutlined style={{ marginRight: 8 }} />
         连接历史
       </Title>
 
       <Card>
-        <Row justify="space-between" align="middle" style={{ marginBottom: '16px' }}>
+        <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>
           <Col>
-            <Text type="secondary">
-              共 {connections.length} 条连接记录
-            </Text>
+            <Text type="secondary">共 {total} 条连接记录</Text>
           </Col>
           <Col>
             <Space>
-              <RangePicker />
-              <Button icon={<ReloadOutlined />} onClick={fetchConnections}>
+              <RangePicker showTime onChange={handleDateChange} />
+              <Button icon={<ReloadOutlined />} onClick={() => fetchConnections(page)} loading={loading}>
                 刷新
               </Button>
             </Space>
@@ -191,16 +192,17 @@ const ConnectionHistoryPage: React.FC = () => {
             dataSource={connections}
             columns={columns}
             rowKey="_id"
+            loading={loading}
             pagination={{
+              current: page,
               pageSize: 10,
-              showTotal: (total) => `共 ${total} 条记录`,
+              total,
+              showTotal: (t) => `共 ${t} 条记录`,
+              onChange: (p) => { setPage(p); fetchConnections(p); },
             }}
           />
         ) : (
-          <Empty
-            description="暂无连接记录"
-            image={Empty.PRESENTED_IMAGE_SIMPLE}
-          >
+          <Empty description="暂无连接记录" image={Empty.PRESENTED_IMAGE_SIMPLE}>
             <Button type="primary" onClick={() => navigate('/connection')}>
               开始连接
             </Button>

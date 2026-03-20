@@ -21,4 +21,4 @@ const connectionLimiter = rateLimit({
   message: { error: '连接请求过于频繁' }
 });
 
-module.exports = generalLimiter;
+module.exports = { generalLimiter, loginLimiter, connectionLimiter };

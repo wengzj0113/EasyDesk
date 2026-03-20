@@ -1,26 +1,29 @@
-const { Server } = require('socket.io');
-const http = require('http');
+
+const config = require('../config');
 
 // 存储在线设备
 const onlineDevices = new Map(); // deviceCode -> { socketId, role, password }
 
-// STUN 服务器配置
-const STUN_SERVERS = {
-  iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
+// 动态构建 ICE 服务器列表（每次连接时调用，以便运行中更新配置）
+function buildIceServers() {
+  const iceServers = [
+    { urls: config.webrtc.stunServer },
     { urls: 'stun:stun1.l.google.com:19302' },
     { urls: 'stun:stun2.l.google.com:19302' },
-  ]
-};
+  ];
 
-function initializeSocketIO(server) {
-  const io = new Server(server, {
-    cors: {
-      origin: '*',
-      methods: ['GET', 'POST']
-    }
-  });
+  if (config.webrtc.turnUrl) {
+    iceServers.push({
+      urls: config.webrtc.turnUrl,
+      username: config.webrtc.turnUsername,
+      credential: config.webrtc.turnCredential,
+    });
+  }
 
+  return { iceServers };
+}
+
+function initializeSocketIO(io) {
   io.on('connection', (socket) => {
     console.log(`[Socket.IO] New connection: ${socket.id}`);
 
@@ -94,13 +97,13 @@ function initializeSocketIO(server) {
       // 通知发起端连接已接受
       io.to(target.socketId).emit('connection-accepted', {
         fromDeviceCode: socket.deviceCode,
-        iceServers: STUN_SERVERS
+        iceServers: buildIceServers()
       });
 
       // 通知发起端准备接收 SDP
       socket.emit('prepare-sdp', {
         targetDeviceCode,
-        iceServers: STUN_SERVERS
+        iceServers: buildIceServers()
       });
     });
 
@@ -199,4 +202,4 @@ function initializeSocketIO(server) {
   return io;
 }
 
-module.exports = { initializeSocketIO, STUN_SERVERS };
+module.exports = { initializeSocketIO };

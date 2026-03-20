@@ -1,5 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography } from 'antd';
+import React, { useEffect, useRef, useState, useCallback } from 'react';import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography } from 'antd';
 import {
   FullscreenOutlined,
   FullscreenExitOutlined,
@@ -7,8 +6,10 @@ import {
   DesktopOutlined,
   CheckCircleOutlined,
   LoadingOutlined,
+  FolderOpenOutlined,
 } from '@ant-design/icons';
 import socketService from '../services/socketService';
+import FileTransfer from './FileTransfer';
 
 const { Text } = Typography;
 
@@ -21,11 +22,11 @@ interface RemoteDesktopProps {
   targetDeviceCode?: string;
 }
 
-// STUN 服务器配置
-const STUN_SERVERS = {
+// 默认 ICE 配置（服务器未下发时的回退）
+const DEFAULT_ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' }
+    { urls: 'stun:stun1.l.google.com:19302' },
   ]
 };
 
@@ -40,6 +41,10 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const peerConnectionRef = useRef<RTCPeerConnection | null>(null);
   const dataChannelRef = useRef<RTCDataChannel | null>(null);
+  // 服务器下发的 ICE 配置（含 TURN），默认回退到纯 STUN
+  const iceConfigRef = useRef<RTCConfiguration>(DEFAULT_ICE_CONFIG);
+  // 接收中的文件：uid -> { name, totalChunks, chunks }
+  const receivingFilesRef = useRef<Map<string, { name: string; totalChunks: number; chunks: string[] }>>(new Map());
 
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [connecting, setConnecting] = useState(true);
@@ -50,7 +55,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   const [showSourceSelect, setShowSourceSelect] = useState(false);
   const [isElectron, setIsElectron] = useState(false);
   const [incomingRequest, setIncomingRequest] = useState<any>(null);
-  const [iceServers] = useState(STUN_SERVERS);
+  const [fileTransferVisible, setFileTransferVisible] = useState(false);
 
   // 当前连接的对端设备码
   const [remoteDeviceCode, setRemoteDeviceCode] = useState(targetDeviceCode);
@@ -73,6 +78,10 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     // 设置事件回调
     socketService.on('registered', (data) => {
       console.log('Device registered:', data);
+      // 控制端：注册成功后立即向目标设备发起连接请求
+      if (role === 'controller' && targetDeviceCode) {
+        socketService.requestConnect(targetDeviceCode, password);
+      }
     });
 
     socketService.on('incoming-connection', (data) => {
@@ -82,13 +91,25 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
 
     socketService.on('connection-accepted', async (data) => {
       console.log('Connection accepted, preparing WebRTC...', data);
+      // 保存服务器下发的 ICE 配置（含 TURN）
+      if (data.iceServers) {
+        iceConfigRef.current = data.iceServers;
+      }
       // 收到接受通知，开始创建 WebRTC 连接
       if (role === 'controller') {
         // 更新远程设备码
         if (data.fromDeviceCode) {
           setRemoteDeviceCode(data.fromDeviceCode);
         }
-        await startAsController(data.iceServers);
+        await startAsController();
+      }
+    });
+
+    socketService.on('prepare-sdp', (data) => {
+      console.log('Prepare SDP, ICE config received');
+      // 被控端保存服务器下发的 ICE 配置
+      if (data.iceServers) {
+        iceConfigRef.current = data.iceServers;
       }
     });
 
@@ -176,12 +197,12 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   };
 
   // 作为控制端启动
-  const startAsController = async (serverConfig?: any) => {
+  const startAsController = async () => {
     try {
       setConnecting(true);
 
-      // 创建 WebRTC 连接
-      const pc = new RTCPeerConnection(serverConfig || iceServers);
+      // 创建 WebRTC 连接（使用服务器下发的 ICE 配置）
+      const pc = new RTCPeerConnection(iceConfigRef.current);
       peerConnectionRef.current = pc;
 
       // 创建数据通道
@@ -191,9 +212,9 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       dataChannel.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          console.log('Received control command:', data);
+          handleDataMessage(data);
         } catch (e) {
-          console.error('解析控制指令失败:', e);
+          console.error('解析消息失败:', e);
         }
       };
 
@@ -236,7 +257,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       setConnecting(true);
       setRemoteDeviceCode(fromCode);
 
-      const pc = new RTCPeerConnection(iceServers);
+      const pc = new RTCPeerConnection(iceConfigRef.current);
       peerConnectionRef.current = pc;
 
       // 监听数据通道
@@ -247,9 +268,9 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         receiveChannel.onmessage = (e) => {
           try {
             const data = JSON.parse(e.data);
-            handleControlCommand(data);
+            handleDataMessage(data);
           } catch (err) {
-            console.error('解析控制指令失败:', err);
+            console.error('解析消息失败:', err);
           }
         };
       };
@@ -400,10 +421,45 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         window.electronAPI.sendRemoteKeyboard?.(data);
       }
     }
-
-    // 调试用：显示收到的控制指令
-    // message.info(`收到控制: ${data.type}`);
   }, []);
+
+  // 处理 DataChannel 消息：路由文件传输消息 vs 控制指令
+  const handleDataMessage = useCallback((data: any) => {
+    if (data.type === 'file-start') {
+      receivingFilesRef.current.set(data.uid, {
+        name: data.name,
+        totalChunks: data.totalChunks,
+        chunks: new Array(data.totalChunks)
+      });
+      message.info(`正在接收文件: ${data.name}`);
+    } else if (data.type === 'file-chunk') {
+      const fileData = receivingFilesRef.current.get(data.uid);
+      if (fileData) fileData.chunks[data.index] = data.data;
+    } else if (data.type === 'file-end') {
+      const fileData = receivingFilesRef.current.get(data.uid);
+      if (fileData) {
+        receivingFilesRef.current.delete(data.uid);
+        try {
+          const binary = atob(fileData.chunks.join(''));
+          const bytes = new Uint8Array(binary.length);
+          for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+          const url = URL.createObjectURL(new Blob([bytes]));
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = fileData.name;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(url);
+          message.success(`文件 "${fileData.name}" 接收完成`);
+        } catch {
+          message.error(`文件 "${fileData.name}" 接收失败`);
+        }
+      }
+    } else {
+      handleControlCommand(data);
+    }
+  }, [handleControlCommand]);
 
   // 鼠标移动
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
@@ -595,6 +651,17 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
             </Text>
           )}
 
+          {connected && (
+            <Tooltip title="文件传输">
+              <Button
+                type="text"
+                icon={<FolderOpenOutlined />}
+                onClick={() => setFileTransferVisible(true)}
+                style={{ color: '#fff' }}
+              />
+            </Tooltip>
+          )}
+
           <Button
             type="primary"
             danger
@@ -639,6 +706,13 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
           ))}
         </div>
       </Modal>
+
+      {/* 文件传输弹窗 */}
+      <FileTransfer
+        visible={fileTransferVisible}
+        onClose={() => setFileTransferVisible(false)}
+        dataChannel={dataChannelRef.current}
+      />
     </div>
   );
 };

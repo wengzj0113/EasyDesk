@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import { Modal, Upload, Button, List, Progress, Typography, Space, message, Alert } from 'antd';
 import {
   InboxOutlined,
@@ -8,13 +8,15 @@ import {
   FileExcelOutlined,
   FileWordOutlined,
   DeleteOutlined,
-  DownloadOutlined,
   CheckCircleOutlined,
   CloseCircleOutlined
 } from '@ant-design/icons';
 
 const { Dragger } = Upload;
 const { Text } = Typography;
+
+// 每个分块 32KB，避免 DataChannel 缓冲区溢出
+const CHUNK_SIZE = 32 * 1024;
 
 interface FileItem {
   uid: string;
@@ -23,32 +25,26 @@ interface FileItem {
   status: 'pending' | 'uploading' | 'done' | 'error';
   progress?: number;
   error?: string;
+  file: File;
 }
 
 interface FileTransferProps {
   visible: boolean;
   onClose: () => void;
-  connectionId: string;
+  dataChannel: RTCDataChannel | null;
 }
 
-const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, connectionId }) => {
+const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, dataChannel }) => {
   const [fileList, setFileList] = useState<FileItem[]>([]);
   const [uploading, setUploading] = useState(false);
 
   const getFileIcon = (name: string) => {
     const ext = name.split('.').pop()?.toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext || '')) {
+    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp'].includes(ext || ''))
       return <FileImageOutlined style={{ color: '#1890ff' }} />;
-    }
-    if (ext === 'pdf') {
-      return <FilePdfOutlined style={{ color: '#f5222d' }} />;
-    }
-    if (['xls', 'xlsx'].includes(ext || '')) {
-      return <FileExcelOutlined style={{ color: '#52c41a' }} />;
-    }
-    if (['doc', 'docx'].includes(ext || '')) {
-      return <FileWordOutlined style={{ color: '#1890ff' }} />;
-    }
+    if (ext === 'pdf') return <FilePdfOutlined style={{ color: '#f5222d' }} />;
+    if (['xls', 'xlsx'].includes(ext || '')) return <FileExcelOutlined style={{ color: '#52c41a' }} />;
+    if (['doc', 'docx'].includes(ext || '')) return <FileWordOutlined style={{ color: '#1890ff' }} />;
     return <FileOutlined />;
   };
 
@@ -60,44 +56,77 @@ const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, connectio
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const handleUpload = () => {
-    if (fileList.length === 0) {
-      message.warning('请选择要传输的文件');
+  const readChunkAsBase64 = (chunk: Blob): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve((reader.result as string).split(',')[1]);
+      reader.onerror = reject;
+      reader.readAsDataURL(chunk);
+    });
+
+  // 等待 DataChannel 缓冲区低于 1MB 再继续发送
+  const waitForBuffer = (dc: RTCDataChannel): Promise<void> =>
+    new Promise(resolve => {
+      const check = () => {
+        if (dc.bufferedAmount < 1024 * 1024) resolve();
+        else setTimeout(check, 50);
+      };
+      check();
+    });
+
+  const handleSend = async () => {
+    if (!dataChannel || dataChannel.readyState !== 'open') {
+      message.error('传输通道未就绪，请确保已建立远程连接');
       return;
     }
 
+    const pendingFiles = fileList.filter(f => f.status === 'pending');
+    if (pendingFiles.length === 0) return;
+
     setUploading(true);
 
-    // 模拟文件上传
-    const uploadedFiles = fileList.map((file, index) => ({
-      ...file,
-      status: 'uploading' as const,
-      progress: 0
-    }));
-    setFileList(uploadedFiles);
+    for (const fileItem of pendingFiles) {
+      const { uid, file } = fileItem;
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
 
-    // 模拟上传进度
-    let progress = 0;
-    const interval = setInterval(() => {
-      progress += Math.random() * 20;
-      if (progress >= 100) {
-        progress = 100;
-        clearInterval(interval);
+      try {
+        // 发送文件元数据
+        dataChannel.send(JSON.stringify({
+          type: 'file-start',
+          uid,
+          name: file.name,
+          size: file.size,
+          totalChunks
+        }));
 
-        setFileList(prev => prev.map(f => ({
-          ...f,
-          progress: 100,
-          status: 'done'
-        })));
+        // 逐块发送
+        for (let i = 0; i < totalChunks; i++) {
+          const start = i * CHUNK_SIZE;
+          const base64 = await readChunkAsBase64(file.slice(start, start + CHUNK_SIZE));
+          await waitForBuffer(dataChannel);
+          dataChannel.send(JSON.stringify({ type: 'file-chunk', uid, index: i, data: base64 }));
 
-        setUploading(false);
-        message.success('文件传输完成');
-      } else {
-        setFileList(prev => prev.map((f, i) =>
-          i === index ? { ...f, progress: Math.floor(progress) } : f
+          setFileList(prev => prev.map(f =>
+            f.uid === uid
+              ? { ...f, progress: Math.round(((i + 1) / totalChunks) * 100), status: 'uploading' }
+              : f
+          ));
+        }
+
+        // 发送结束标记
+        dataChannel.send(JSON.stringify({ type: 'file-end', uid }));
+        setFileList(prev => prev.map(f =>
+          f.uid === uid ? { ...f, status: 'done', progress: 100 } : f
+        ));
+      } catch (err: any) {
+        setFileList(prev => prev.map(f =>
+          f.uid === uid ? { ...f, status: 'error', error: err.message } : f
         ));
       }
-    }, 300);
+    }
+
+    setUploading(false);
+    message.success('文件发送完成');
   };
 
   const handleRemove = (uid: string) => {
@@ -105,15 +134,17 @@ const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, connectio
   };
 
   const beforeUpload = (file: File) => {
-    const newFile: FileItem = {
-      uid: file.uid || Math.random().toString(36).substr(2, 9),
+    setFileList(prev => [...prev, {
+      uid: Math.random().toString(36).substr(2, 9),
       name: file.name,
       size: file.size,
-      status: 'pending'
-    };
-    setFileList(prev => [...prev, newFile]);
+      status: 'pending',
+      file
+    }]);
     return false;
   };
+
+  const isChannelReady = dataChannel?.readyState === 'open';
 
   return (
     <Modal
@@ -122,48 +153,44 @@ const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, connectio
       onCancel={onClose}
       width={600}
       footer={[
-        <Button key="close" onClick={onClose}>
-          关闭
-        </Button>,
+        <Button key="close" onClick={onClose}>关闭</Button>,
         <Button
-          key="upload"
+          key="send"
           type="primary"
           loading={uploading}
-          onClick={handleUpload}
-          disabled={fileList.length === 0}
+          onClick={handleSend}
+          disabled={fileList.filter(f => f.status === 'pending').length === 0 || !isChannelReady}
         >
-          开始传输
+          发送
         </Button>
       ]}
     >
-      <Alert
-        message="文件传输说明"
-        description="文件将通过加密通道传输给对方，最大支持100MB的文件。请确保网络畅通。"
-        type="info"
-        showIcon
-        style={{ marginBottom: '16px' }}
-      />
+      {!isChannelReady && (
+        <Alert
+          message="传输通道未就绪"
+          description="文件传输需要先建立远程连接，请先连接到目标设备。"
+          type="warning"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+      )}
 
       <Dragger
         name="file"
         multiple
         showUploadList={false}
-        beforeUpload={beforeUpload}
-        disabled={uploading}
+        beforeUpload={beforeUpload as any}
+        disabled={uploading || !isChannelReady}
         style={{ padding: '20px' }}
       >
-        <p className="ant-upload-drag-icon">
-          <InboxOutlined />
-        </p>
-        <p className="ant-upload-text">点击或拖拽文件到此处上传</p>
-        <p className="ant-upload-hint">
-          支持单个或批量上传，最大100MB
-        </p>
+        <p className="ant-upload-drag-icon"><InboxOutlined /></p>
+        <p className="ant-upload-text">点击或拖拽文件到此处</p>
+        <p className="ant-upload-hint">支持批量发送，单个文件最大 100MB，文件直接传输至对方设备</p>
       </Dragger>
 
       {fileList.length > 0 && (
-        <div style={{ marginTop: '16px' }}>
-          <Text strong>传输列表 ({fileList.length}个文件)</Text>
+        <div style={{ marginTop: 16 }}>
+          <Text strong>发送列表（{fileList.length} 个文件）</Text>
           <List
             size="small"
             dataSource={fileList}
@@ -191,14 +218,10 @@ const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, connectio
                         <Progress percent={item.progress} size="small" status="active" />
                       )}
                       {item.status === 'done' && (
-                        <Text type="success">
-                          <CheckCircleOutlined /> 传输完成
-                        </Text>
+                        <Text type="success"><CheckCircleOutlined /> 发送完成</Text>
                       )}
                       {item.status === 'error' && (
-                        <Text type="danger">
-                          <CloseCircleOutlined /> {item.error}
-                        </Text>
+                        <Text type="danger"><CloseCircleOutlined /> {item.error}</Text>
                       )}
                     </Space>
                   }
