@@ -7,9 +7,13 @@ import {
   CheckCircleOutlined,
   LoadingOutlined,
   FolderOpenOutlined,
+  FileSearchOutlined,
+  CameraOutlined,
 } from '@ant-design/icons';
 import socketService from '../services/socketService';
 import FileTransfer from './FileTransfer';
+import RemoteFileManager from './RemoteFileManager';
+import ScreenshotPreview from './ScreenshotPreview';
 
 const { Text } = Typography;
 
@@ -56,6 +60,8 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   const [isElectron, setIsElectron] = useState(false);
   const [incomingRequest, setIncomingRequest] = useState<any>(null);
   const [fileTransferVisible, setFileTransferVisible] = useState(false);
+  const [fileManagerVisible, setFileManagerVisible] = useState(false);
+  const [screenshotVisible, setScreenshotVisible] = useState(false);
 
   // 当前连接的对端设备码
   const [remoteDeviceCode, setRemoteDeviceCode] = useState(targetDeviceCode);
@@ -662,6 +668,28 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
             </Tooltip>
           )}
 
+          {connected && isElectron && (
+            <Tooltip title="文件管理">
+              <Button
+                type="text"
+                icon={<FileSearchOutlined />}
+                onClick={() => setFileManagerVisible(true)}
+                style={{ color: '#fff' }}
+              />
+            </Tooltip>
+          )}
+
+          {connected && isElectron && (
+            <Tooltip title="截图">
+              <Button
+                type="text"
+                icon={<CameraOutlined />}
+                onClick={() => setScreenshotVisible(true)}
+                style={{ color: '#fff' }}
+              />
+            </Tooltip>
+          )}
+
           <Button
             type="primary"
             danger
@@ -712,6 +740,21 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         visible={fileTransferVisible}
         onClose={() => setFileTransferVisible(false)}
         dataChannel={dataChannelRef.current}
+      />
+
+      {/* 文件管理弹窗 */}
+      <RemoteFileManager
+        visible={fileManagerVisible}
+        onClose={() => setFileManagerVisible(false)}
+        dataChannel={dataChannelRef.current}
+        isElectron={isElectron}
+      />
+
+      {/* 截图弹窗 */}
+      <ScreenshotPreview
+        visible={screenshotVisible}
+        onClose={() => setScreenshotVisible(false)}
+        isElectron={isElectron}
       />
     </div>
   );

@@ -1,8 +1,12 @@
-const { app, BrowserWindow, ipcMain, shell, desktopCapturer, screen, globalShortcut } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, desktopCapturer, screen, globalShortcut, dialog, Tray, Menu, nativeImage } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const os = require('os');
 const { exec } = require('child_process');
 
 let mainWindow;
+let tray = null;
+let isQuitting = false;
 
 function createWindow() {
   // 获取资源路径
@@ -73,11 +77,118 @@ function createWindow() {
   mainWindow.on('closed', () => {
     mainWindow = null;
   });
+
+  // 监听窗口最小化，最小化到托盘
+  mainWindow.on('minimize', (event) => {
+    // 可以选择是否最小化到托盘
+  });
+
+  // 监听窗口关闭，处理托盘退出
+  mainWindow.on('close', (event) => {
+    if (!isQuitting) {
+      event.preventDefault();
+      mainWindow.hide();
+      return false;
+    }
+  });
+}
+
+// 创建系统托盘
+function createTray() {
+  // 创建一个简单的托盘图标
+  const iconPath = path.join(__dirname, '../build/icon.png');
+  let trayIcon;
+
+  if (fs.existsSync(iconPath)) {
+    trayIcon = nativeImage.createFromPath(iconPath);
+  } else {
+    // 使用默认图标
+    trayIcon = nativeImage.createEmpty();
+  }
+
+  // 如果图标为空，创建一个简单的图标
+  if (trayIcon.isEmpty()) {
+    // 创建一个 16x16 的简单图标
+    trayIcon = nativeImage.createFromDataURL('data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlzAAAAdgAAAHYBTnsmCAAAABl0RVh0U29mdHdhcmUAd3d3Lmlua3NjYXBlLm9yZ5vuPBoAAADfSURBVDiNpZMxDoJAEEX/LhZaWFFrS29gYeUtPIeH8Bbewtpb2HoLC2tvYOkNPdeGXYKwLGKyZpNJMvn/2d2Z/5xABGpmVhGrA0RE4M0sAqiIvJjZLmNmrqqqqh6B4ygiL0EQEZF7EZmLyLOqroFTVX0GEJGcmV2IyKOIXJnZDlifTyaTyX8B1gA2qroGsAD2wN7MuhH4AtbAGZgCS+ABHIE9cAFuwBXY9FngqFsQkRNwU9UdsOwE7IBNJwCqWlTVCagAqyPw0D0A8x4w9X8B4FJVj0AFWAMzYK5bICJnoNT9/wB2wFxEHkAFWAMLEbkDFaAKrFT1pPv/G/xmA3+MxjV8D9eCAAAAAElFTkSuQmCC');
+  }
+
+  // 调整图标大小
+  trayIcon = trayIcon.resize({ width: 16, height: 16 });
+
+  tray = new Tray(trayIcon);
+
+  const contextMenu = Menu.buildFromTemplate([
+    {
+      label: '显示 EasyDesk',
+      click: () => {
+        if (mainWindow) {
+          mainWindow.show();
+          mainWindow.focus();
+        }
+      }
+    },
+    { type: 'separator' },
+    {
+      label: '退出',
+      click: () => {
+        isQuitting = true;
+        app.quit();
+      }
+    }
+  ]);
+
+  tray.setToolTip('EasyDesk - 极简远程桌面');
+  tray.setContextMenu(contextMenu);
+
+  // 双击托盘图标显示窗口
+  tray.on('double-click', () => {
+    if (mainWindow) {
+      mainWindow.show();
+      mainWindow.focus();
+    }
+  });
+}
+
+// 注册全局快捷键
+function registerGlobalShortcuts() {
+  // 截图快捷键: Ctrl+Shift+S
+  globalShortcut.register('CommandOrControl+Shift+S', async () => {
+    if (mainWindow) {
+      mainWindow.webContents.send('global-shortcut', 'screenshot');
+      // 执行截图
+      try {
+        const sources = await desktopCapturer.getSources({
+          types: ['screen'],
+          thumbnailSize: screen.getPrimaryDisplay().size
+        });
+        if (sources.length > 0) {
+          const screenshot = sources[0].thumbnail.toDataURL();
+          mainWindow.webContents.send('screenshot-captured', screenshot);
+        }
+      } catch (error) {
+        console.error('截图失败:', error);
+      }
+    }
+  });
+
+  // 最小化到托盘: Ctrl+Shift+M
+  globalShortcut.register('CommandOrControl+Shift+M', () => {
+    if (mainWindow) {
+      if (mainWindow.isVisible()) {
+        mainWindow.hide();
+      } else {
+        mainWindow.show();
+        mainWindow.focus();
+      }
+    }
+  });
 }
 
 // 应用准备好后创建窗口
 app.whenReady().then(() => {
   createWindow();
+  createTray();
+  registerGlobalShortcuts();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -93,9 +204,37 @@ app.on('window-all-closed', () => {
   }
 });
 
+// 应用退出前注销全局快捷键
+app.on('will-quit', () => {
+  globalShortcut.unregisterAll();
+});
+
 // IPC处理器 - 获取版本号
 ipcMain.handle('get-app-version', () => {
   return app.getVersion();
+});
+
+// IPC处理器 - 窗口控制
+ipcMain.handle('window-minimize', () => {
+  if (mainWindow) mainWindow.minimize();
+});
+
+ipcMain.handle('window-maximize', () => {
+  if (mainWindow) {
+    if (mainWindow.isMaximized()) {
+      mainWindow.unmaximize();
+    } else {
+      mainWindow.maximize();
+    }
+  }
+});
+
+ipcMain.handle('window-close', () => {
+  if (mainWindow) mainWindow.close();
+});
+
+ipcMain.handle('window-is-maximized', () => {
+  return mainWindow ? mainWindow.isMaximized() : false;
 });
 
 // IPC处理器 - 获取平台信息
@@ -304,4 +443,196 @@ ipcMain.on('remote-keyboard', (event, data) => {
 
   const isDown = data.type === 'keyDown';
   sendKey(data.key, isDown);
+});
+
+// ========== 文件管理功能 ==========
+
+// 获取用户主目录
+ipcMain.handle('get-home-directory', () => {
+  return os.homedir();
+});
+
+// 读取目录内容
+ipcMain.handle('read-directory', async (event, dirPath) => {
+  try {
+    const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
+    const result = items.map(item => ({
+      name: item.name,
+      path: path.join(dirPath, item.name),
+      isDirectory: item.isDirectory(),
+      size: item.isFile() ? (() => {
+        try {
+          return fs.statSync(path.join(dirPath, item.name)).size;
+        } catch { return 0; }
+      })() : 0,
+      modifiedTime: (() => {
+        try {
+          return fs.statSync(path.join(dirPath, item.name)).mtime.getTime();
+        } catch { return 0; }
+      })()
+    }));
+    // 目录在前，文件在后，按名称排序
+    result.sort((a, b) => {
+      if (a.isDirectory && !b.isDirectory) return -1;
+      if (!a.isDirectory && b.isDirectory) return 1;
+      return a.name.localeCompare(b.name);
+    });
+    return { success: true, items: result };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 获取文件内容（用于小文件预览）
+ipcMain.handle('read-file', async (event, filePath, options = {}) => {
+  try {
+    const { encoding = 'base64', start = 0, end = null } = options;
+    const stats = await fs.promises.stat(filePath);
+
+    // 大于 10MB 的文件拒绝读取
+    if (stats.size > 10 * 1024 * 1024) {
+      return { success: false, error: '文件过大' };
+    }
+
+    if (encoding === 'buffer') {
+      const buffer = await fs.promises.readFile(filePath);
+      return { success: true, data: buffer.toString('base64'), size: stats.size };
+    } else if (encoding === 'text') {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      return { success: true, data: content, size: stats.size };
+    } else {
+      const buffer = await fs.promises.readFile(filePath);
+      return { success: true, data: buffer.toString('base64'), size: stats.size };
+    }
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 删除文件或目录
+ipcMain.handle('delete-item', async (event, itemPath, isDirectory) => {
+  try {
+    if (isDirectory) {
+      await fs.promises.rm(itemPath, { recursive: true });
+    } else {
+      await fs.promises.unlink(itemPath);
+    }
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 重命名文件或目录
+ipcMain.handle('rename-item', async (event, oldPath, newName) => {
+  try {
+    const dir = path.dirname(oldPath);
+    const newPath = path.join(dir, newName);
+    await fs.promises.rename(oldPath, newPath);
+    return { success: true, newPath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 创建目录
+ipcMain.handle('create-directory', async (event, dirPath) => {
+  try {
+    await fs.promises.mkdir(dirPath, { recursive: true });
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 获取磁盘信息
+ipcMain.handle('get-drives', async () => {
+  try {
+    const drives = [];
+    if (process.platform === 'win32') {
+      // Windows: 获取所有盘符
+      const letters = 'CDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+      for (const letter of letters) {
+        const drivePath = `${letter}:\\`;
+        try {
+          await fs.promises.access(drivePath);
+          const stats = await fs.promises.statfs(drivePath);
+          drives.push({
+            name: `${letter}:`,
+            path: drivePath,
+            total: stats.bsize * stats.blocks,
+            free: stats.bsize * stats.bfree
+          });
+        } catch {}
+      }
+    } else {
+      // Unix-like: 根目录和主目录
+      drives.push({
+        name: '/',
+        path: '/',
+        total: (() => {
+          try {
+            const stats = fs.statfsSync('/');
+            return stats.bsize * stats.blocks;
+          } catch { return 0; }
+        })(),
+        free: (() => {
+          try {
+            const stats = fs.statfsSync('/');
+            return stats.bsize * stats.bfree;
+          } catch { return 0; }
+        })()
+      });
+      drives.push({
+        name: os.homedir(),
+        path: os.homedir(),
+        total: 0,
+        free: 0
+      });
+    }
+    return { success: true, drives };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 截图功能
+ipcMain.handle('capture-screen', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen'],
+      thumbnailSize: screen.getPrimaryDisplay().size
+    });
+    if (sources.length > 0) {
+      const screenshot = sources[0].thumbnail.toDataURL();
+      return { success: true, data: screenshot };
+    }
+    return { success: false, error: '无法获取屏幕' };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 保存文件对话框
+ipcMain.handle('save-file-dialog', async (event, defaultName) => {
+  try {
+    const result = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: defaultName,
+      filters: [{ name: '所有文件', extensions: ['*'] }]
+    });
+    return { success: !result.canceled, filePath: result.filePath };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 保存文件
+ipcMain.handle('save-file', async (event, filePath, base64Data) => {
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
+    await fs.promises.writeFile(filePath, buffer);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
 });
