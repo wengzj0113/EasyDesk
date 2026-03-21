@@ -100,5 +100,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // 监听截图
   onScreenshotCaptured: (callback) => {
     ipcRenderer.on('screenshot-captured', (event, data) => callback(data));
-  }
+  },
+
+  // 剪贴板功能
+  clipboardReadText: () => ipcRenderer.invoke('clipboard-read-text'),
+  clipboardWriteText: (text) => ipcRenderer.invoke('clipboard-write-text', text),
+  clipboardReadImage: () => ipcRenderer.invoke('clipboard-read-image'),
+  clipboardWriteImage: (base64Data) => ipcRenderer.invoke('clipboard-write-image', base64Data),
+  clipboardHasText: () => ipcRenderer.invoke('clipboard-has-text'),
+  clipboardHasImage: () => ipcRenderer.invoke('clipboard-has-image'),
+
+  // 打印功能
+  printPage: (options) => ipcRenderer.invoke('print-page', options),
+  printToPdf: (options) => ipcRenderer.invoke('print-to-pdf', options)
 });

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, ipcMain, shell, desktopCapturer, screen, globalShortcut, dialog, Tray, Menu, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, desktopCapturer, screen, globalShortcut, dialog, Tray, Menu, nativeImage, clipboard, webContents } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -632,6 +632,104 @@ ipcMain.handle('save-file', async (event, filePath, base64Data) => {
     const buffer = Buffer.from(base64Data, 'base64');
     await fs.promises.writeFile(filePath, buffer);
     return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// ========== 剪贴板功能 ==========
+
+// 读取剪贴板文本
+ipcMain.handle('clipboard-read-text', () => {
+  return clipboard.readText();
+});
+
+// 写入剪贴板文本
+ipcMain.handle('clipboard-write-text', (event, text) => {
+  clipboard.writeText(text);
+  return { success: true };
+});
+
+// 读取剪贴板图片
+ipcMain.handle('clipboard-read-image', () => {
+  try {
+    const image = clipboard.readImage();
+    if (image.isEmpty()) {
+      return { success: false, error: '剪贴板为空' };
+    }
+    return { success: true, data: image.toDataURL() };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 写入剪贴板图片
+ipcMain.handle('clipboard-write-image', (event, base64Data) => {
+  try {
+    const image = nativeImage.createFromDataURL(base64Data);
+    clipboard.writeImage(image);
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 检查剪贴板是否有内容
+ipcMain.handle('clipboard-has-text', () => {
+  return clipboard.readText().length > 0;
+});
+
+ipcMain.handle('clipboard-has-image', () => {
+  return !clipboard.readImage().isEmpty();
+});
+
+// ========== 打印功能 ==========
+
+// 打印页面
+ipcMain.handle('print-page', async (event, options = {}) => {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return { success: false, error: '窗口不存在' };
+    }
+
+    const defaultOptions = {
+      silent: false,
+      printBackground: true,
+      color: true,
+      margin: { marginType: 'custom', top: 0.5, bottom: 0.5, left: 0.5, right: 0.5 },
+      landscape: false,
+      ...options
+    };
+
+    // 使用 webContents 打印
+    mainWindow.webContents.print(defaultOptions, (success, errorType) => {
+      if (success) {
+        console.log('打印成功');
+      } else {
+        console.error('打印失败:', errorType);
+      }
+    });
+
+    return { success: true };
+  } catch (error) {
+    return { success: false, error: error.message };
+  }
+});
+
+// 打印 PDF
+ipcMain.handle('print-to-pdf', async (event, options = {}) => {
+  try {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return { success: false, error: '窗口不存在' };
+    }
+
+    const data = await mainWindow.webContents.printToPDF({
+      printBackground: true,
+      landscape: false,
+      ...options
+    });
+
+    return { success: true, data: data.toString('base64') };
   } catch (error) {
     return { success: false, error: error.message };
   }

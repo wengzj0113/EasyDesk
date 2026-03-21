@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography } from 'antd';
+import React, { useEffect, useRef, useState, useCallback } from 'react';import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography, Switch } from 'antd';
 import {
   FullscreenOutlined,
   FullscreenExitOutlined,
@@ -9,11 +9,14 @@ import {
   FolderOpenOutlined,
   FileSearchOutlined,
   CameraOutlined,
+  CopyOutlined,
+  PrinterOutlined,
 } from '@ant-design/icons';
 import socketService from '../services/socketService';
 import FileTransfer from './FileTransfer';
 import RemoteFileManager from './RemoteFileManager';
 import ScreenshotPreview from './ScreenshotPreview';
+import ClipboardSync from './ClipboardSync';
 
 const { Text } = Typography;
 
@@ -56,12 +59,29 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [sources, setSources] = useState<Array<{ id: string; name: string; thumbnail: string }>>([]);
   const [selectedSource, setSelectedSource] = useState<string>('');
+  const [audioEnabled, setAudioEnabled] = useState(false);
   const [showSourceSelect, setShowSourceSelect] = useState(false);
   const [isElectron, setIsElectron] = useState(false);
   const [incomingRequest, setIncomingRequest] = useState<any>(null);
   const [fileTransferVisible, setFileTransferVisible] = useState(false);
   const [fileManagerVisible, setFileManagerVisible] = useState(false);
   const [screenshotVisible, setScreenshotVisible] = useState(false);
+  const [clipboardVisible, setClipboardVisible] = useState(false);
+
+  // 远程打印
+  const handleRemotePrint = useCallback(async () => {
+    if (!isElectron || !window.electronAPI) {
+      message.error('此功能仅在桌面客户端中可用');
+      return;
+    }
+
+    try {
+      await window.electronAPI.printPage();
+      message.success('已发送打印命令');
+    } catch (error: any) {
+      message.error('打印失败: ' + error.message);
+    }
+  }, [isElectron]);
 
   // 当前连接的对端设备码
   const [remoteDeviceCode, setRemoteDeviceCode] = useState(targetDeviceCode);
@@ -359,7 +379,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       if (window.electronAPI && selectedSource) {
         // Electron 环境
         stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
+          audio: audioEnabled,
           video: {
             mandatory: {
               chromeMediaSource: 'desktop',
@@ -375,7 +395,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         // 浏览器环境
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
-          audio: false
+          audio: audioEnabled
         });
       }
 
@@ -404,7 +424,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       setError('无法启动屏幕共享: ' + err.message);
       setConnecting(false);
     }
-  }, [selectedSource]);
+  }, [selectedSource, audioEnabled]);
 
   // 发送控制指令
   const sendControlCommand = useCallback((type: string, data: any) => {
@@ -461,6 +481,16 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         } catch {
           message.error(`文件 "${fileData.name}" 接收失败`);
         }
+      }
+    } else if (data.type === 'clipboard-sync') {
+      // 处理剪贴板同步
+      if (data.subtype === 'text' && data.data) {
+        if (window.electronAPI) {
+          window.electronAPI.clipboardWriteText(data.data);
+        } else {
+          navigator.clipboard.writeText(data.data);
+        }
+        message.info('剪贴板已从远程设备同步');
       }
     } else {
       handleControlCommand(data);
@@ -690,6 +720,28 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
             </Tooltip>
           )}
 
+          {connected && isElectron && (
+            <Tooltip title="剪贴板">
+              <Button
+                type="text"
+                icon={<CopyOutlined />}
+                onClick={() => setClipboardVisible(true)}
+                style={{ color: '#fff' }}
+              />
+            </Tooltip>
+          )}
+
+          {connected && isElectron && (
+            <Tooltip title="打印">
+              <Button
+                type="text"
+                icon={<PrinterOutlined />}
+                onClick={handleRemotePrint}
+                style={{ color: '#fff' }}
+              />
+            </Tooltip>
+          )}
+
           <Button
             type="primary"
             danger
@@ -718,6 +770,18 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
           </Button>
         ]}
       >
+        <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 6 }}>
+          <Space>
+            <span>共享音频:</span>
+            <Switch
+              checked={audioEnabled}
+              onChange={setAudioEnabled}
+              checkedChildren="开"
+              unCheckedChildren="关"
+            />
+            <Text type="secondary">(开启后远程设备将听到您屏幕的声音)</Text>
+          </Space>
+        </div>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 16 }}>
           {sources.map(source => (
             <Card
@@ -754,6 +818,14 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       <ScreenshotPreview
         visible={screenshotVisible}
         onClose={() => setScreenshotVisible(false)}
+        isElectron={isElectron}
+      />
+
+      {/* 剪贴板同步弹窗 */}
+      <ClipboardSync
+        visible={clipboardVisible}
+        onClose={() => setClipboardVisible(false)}
+        dataChannel={dataChannelRef.current}
         isElectron={isElectron}
       />
     </div>
