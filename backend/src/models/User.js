@@ -30,6 +30,14 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  settings: {
+    videoQuality: { type: String, default: '720p' },
+    frameRate: { type: Number, default: 30 },
+    audioEnabled: { type: Boolean, default: true },
+    notificationEnabled: { type: Boolean, default: true },
+    autoConnect: { type: Boolean, default: false },
+    savePassword: { type: Boolean, default: false }
+  },
   createdAt: {
     type: Date,
     default: Date.now

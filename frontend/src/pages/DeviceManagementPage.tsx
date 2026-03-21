@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Typography, Button, Table, Tag, Modal, Form, Input, Space, Popconfirm, message, Empty, Spin, Divider, Descriptions } from 'antd';
-import { ArrowLeftOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, QrcodeOutlined, ReloadOutlined } from '@ant-design/icons';
+import { Card, Typography, Button, Table, Tag, Modal, Form, Input, Space, Popconfirm, message, Empty, Spin, Divider, Descriptions, QRCode } from 'antd';
+import { ArrowLeftOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, QrcodeOutlined, ReloadOutlined, LinkOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { deviceAPI } from '../services/api';
 import { useStore } from '../store/useStore';
@@ -35,6 +35,7 @@ const DeviceManagementPage: React.FC = () => {
   const [myDevice, setMyDevice] = useState<Device | null>(null);
   const [bindModalVisible, setBindModalVisible] = useState(false);
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+  const [qrModalVisible, setQrModalVisible] = useState(false);
   const [bindForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
 
@@ -128,16 +129,31 @@ const DeviceManagementPage: React.FC = () => {
       title: '操作',
       key: 'action',
       render: (_: any, record: any) => (
-        <Popconfirm
-          title="确定解绑此设备吗？"
-          onConfirm={() => handleUnbindDevice(record.deviceId._id)}
-          okText="确定"
-          cancelText="取消"
-        >
-          <Button type="link" danger icon={<DeleteOutlined />}>
-            解绑
+        <Space>
+          <Button
+            type="link"
+            icon={<LinkOutlined />}
+            onClick={() => navigate('/connection', {
+              state: {
+                deviceCode: record.deviceId.deviceCode,
+                role: 'controller'
+              }
+            })}
+            disabled={!record.deviceId.isOnline}
+          >
+            连接
           </Button>
-        </Popconfirm>
+          <Popconfirm
+            title="确定解绑此设备吗？"
+            onConfirm={() => handleUnbindDevice(record.deviceId._id)}
+            okText="确定"
+            cancelText="取消"
+          >
+            <Button type="link" danger icon={<DeleteOutlined />}>
+              解绑
+            </Button>
+          </Popconfirm>
+        </Space>
       )
     }
   ];
@@ -195,7 +211,7 @@ const DeviceManagementPage: React.FC = () => {
             <Divider />
 
             <Space>
-              <Button icon={<QrcodeOutlined />} onClick={() => message.info('二维码功能开发中')}>
+              <Button icon={<QrcodeOutlined />} onClick={() => setQrModalVisible(true)}>
                 显示二维码
               </Button>
               <Button icon={<ReloadOutlined />} onClick={() => fetchMyDevice()}>
@@ -294,6 +310,39 @@ const DeviceManagementPage: React.FC = () => {
             </Button>
           </Form.Item>
         </Form>
+      </Modal>
+
+      {/* 二维码弹窗 */}
+      <Modal
+        title="设备二维码"
+        open={qrModalVisible}
+        onCancel={() => setQrModalVisible(false)}
+        footer={[
+          <Button key="close" onClick={() => setQrModalVisible(false)}>
+            关闭
+          </Button>,
+          <Button key="copy" type="primary" onClick={() => {
+            const text = `设备码: ${myDevice?.deviceCode || ''}\n密码: ${myDevice?.accessPassword || ''}`;
+            navigator.clipboard.writeText(text);
+            message.success('已复制到剪贴板');
+          }}>
+            复制信息
+          </Button>
+        ]}
+      >
+        <div style={{ textAlign: 'center', padding: '20px 0' }}>
+          <QRCode
+            value={`easydesk://${myDevice?.deviceCode || ''}`}
+            size={200}
+            style={{ marginBottom: 16 }}
+          />
+          <div>
+            <Text strong style={{ fontSize: 18, letterSpacing: 2 }}>
+              {myDevice?.deviceCode}
+            </Text>
+          </div>
+          <Text type="secondary">扫码可直接连接本设备</Text>
+        </div>
       </Modal>
     </div>
   );

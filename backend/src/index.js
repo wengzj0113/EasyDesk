@@ -10,6 +10,7 @@ const authRoutes = require('./routes/auth');
 const deviceRoutes = require('./routes/device');
 const connectionRoutes = require('./routes/connection');
 const vipRoutes = require('./routes/vip');
+const settingsRoutes = require('./routes/settings');
 
 // WebSocket处理器
 const { initializeSocketIO } = require('./services/socketService');
@@ -44,6 +45,7 @@ app.use('/api/auth', loginLimiter, authRoutes);
 app.use('/api/device', deviceRoutes);
 app.use('/api/connection', connectionLimiter, connectionRoutes);
 app.use('/api/vip', vipRoutes);
+app.use('/api/settings', settingsRoutes);
 
 // 健康检查
 app.get('/health', (req, res) => {

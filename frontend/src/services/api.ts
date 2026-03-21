@@ -66,4 +66,9 @@ export const vipAPI = {
   simulatePayment: (data: { plan: string }) => api.post('/vip/simulate-payment', data),
 };
 
+export const settingsAPI = {
+  get: () => api.get('/settings'),
+  save: (settings: Record<string, any>) => api.post('/settings', { settings }),
+};
+
 export default api;
