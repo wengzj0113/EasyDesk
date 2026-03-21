@@ -12,7 +12,7 @@ const randomCode = (len: number) =>
 
 export const getSessionDeviceCode = (): string => {
   let code = localStorage.getItem(CODE_KEY);
-  if (!code || code.length !== 6) {
+  if (!code || code.length !== 9) {
     code = randomCode(6);
     localStorage.setItem(CODE_KEY, code);
   }

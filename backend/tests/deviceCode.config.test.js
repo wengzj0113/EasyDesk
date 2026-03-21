@@ -24,8 +24,8 @@ describe('设备码生成', () => {
     }
   });
 
-  test('config.deviceCode.length 为 6', () => {
-    expect(config.deviceCode.length).toBe(6);
+  test('config.deviceCode.length 为 9', () => {
+    expect(config.deviceCode.length).toBe(9);
   });
 
   test('100 次生成的设备码唯一性超过 95%', () => {

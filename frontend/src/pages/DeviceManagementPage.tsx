@@ -266,10 +266,10 @@ const DeviceManagementPage: React.FC = () => {
             name="deviceCode"
             rules={[
               { required: true, message: '请输入设备码' },
-              { len: 6, message: '设备码必须是6位' }
+              { len: 9, message: '设备码必须是9位' }
             ]}
           >
-            <Input placeholder="请输入6位设备码" maxLength={6} />
+            <Input placeholder="请输入9位设备码" maxLength={9} />
           </Form.Item>
           <Form.Item
             label="设备名称（可选）"

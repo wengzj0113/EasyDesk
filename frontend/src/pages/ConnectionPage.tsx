@@ -148,13 +148,13 @@ const ConnectionPage: React.FC = () => {
               name="deviceCode"
               rules={[
                 { required: true, message: '请输入设备码' },
-                { len: 6, message: '设备码必须是6位' }
+                { len: 9, message: '设备码必须是9位' }
               ]}
             >
               <Input
-                placeholder="请输入6位设备码"
-                style={{ textTransform: 'uppercase', letterSpacing: '4px', fontWeight: 'bold' }}
-                maxLength={6}
+                placeholder="请输入9位数字设备码"
+                style={{ letterSpacing: '6px', fontWeight: 'bold' }}
+                maxLength={9}
                 size="large"
               />
             </Form.Item>

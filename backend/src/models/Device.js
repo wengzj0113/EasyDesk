@@ -1,10 +1,10 @@
 const mongoose = require('mongoose');
 
-// 生成6位纯数字设备码
+// 生成9位纯数字设备码
 const generateDeviceCode = () => {
   const digits = '0123456789';
   let code = '';
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 9; i++) {
     code += digits[Math.floor(Math.random() * digits.length)];
   }
   // 确保不以0开头

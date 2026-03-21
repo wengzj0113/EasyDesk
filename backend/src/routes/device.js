@@ -3,11 +3,11 @@ const router = express.Router();
 const Device = require('../models/Device');
 const authMiddleware = require('../middleware/auth');
 
-// 生成6位纯数字设备码
+// 生成9位纯数字设备码
 const generateDeviceCode = () => {
   const digits = '0123456789';
   let code = '';
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < 9; i++) {
     code += digits[Math.floor(Math.random() * digits.length)];
   }
   if (code[0] === '0') code = '1' + code.substring(1);

@@ -38,8 +38,8 @@ module.exports = {
 
   // 设备码配置
   deviceCode: {
-    length: 6,
-    charset: 'ABCDEFGHJKLMNPQRSTUVWXYZ',
+    length: 9,
+    charset: '0123456789',
   },
 
   // WebRTC配置

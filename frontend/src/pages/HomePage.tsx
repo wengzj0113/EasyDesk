@@ -74,7 +74,7 @@ const HomePage: React.FC = () => {
   };
 
   const handleStartControl = () => {
-    if (!remoteCode || remoteCode.length !== 6) {
+    if (!remoteCode || remoteCode.length !== 9) {
       message.error('请输入6位设备码');
       return;
     }
@@ -203,8 +203,8 @@ const HomePage: React.FC = () => {
               <Input
                 placeholder="请输入6位数字"
                 value={remoteCode}
-                onChange={(e) => setRemoteCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                maxLength={6}
+                onChange={(e) => setRemoteCode(e.target.value.replace(/\D/g, '').slice(0, 9))}
+                maxLength={9}
                 size="large"
                 style={{ letterSpacing: 8, fontWeight: 'bold', fontSize: 20, textAlign: 'center' }}
               />

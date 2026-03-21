@@ -1,7 +1,7 @@
 {
   "name": "easydesk",
   "productName": "EasyDesk",
-  "version": "1.1.0",
+  "version": "1.1.2",
   "description": "EasyDesk 极简远程桌面应用",
   "homepage": ".",
   "main": "./electron/main.js",
