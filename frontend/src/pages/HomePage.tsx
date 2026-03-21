@@ -22,6 +22,7 @@ import {
   LinkOutlined,
   WifiOutlined,
   DisconnectOutlined,
+  CheckCircleOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
@@ -102,36 +103,99 @@ const HomePage: React.FC = () => {
         {/* 左侧：允许控制本设备 */}
         <Col xs={24} lg={12}>
           <Card
-            title={<Space><DesktopOutlined /><span>允许控制本设备</span></Space>}
+            title={<Space><DesktopOutlined /><span>被控端设置</span></Space>}
             style={{ height: '100%' }}
-            extra={
-              <Switch
-                checked={allowControl}
-                onChange={handleToggleControl}
-                checkedChildren="已开启"
-                unCheckedChildren="已关闭"
-              />
-            }
           >
-            <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <div style={{ marginBottom: 8 }}>
-                <Tag
-                  icon={allowControl ? <WifiOutlined /> : <DisconnectOutlined />}
-                  color={allowControl ? 'success' : 'default'}
-                >
-                  {allowControl ? '在线 - 等待连接' : '离线'}
-                </Tag>
-              </div>
-              <Title level={4} style={{ margin: 0 }}>我的电脑</Title>
-              <Text type="secondary">Windows</Text>
-            </div>
+            <Alert
+              message="想要别人远程控制你的电脑？点击下方按钮开启被控模式"
+              type="info"
+              showIcon
+              style={{ marginBottom: 16 }}
+            />
 
-            <Divider />
+            <Button
+              type={allowControl ? 'default' : 'primary'}
+              size="large"
+              block
+              icon={allowControl ? <CheckCircleOutlined /> : <DesktopOutlined />}
+              onClick={() => {
+                if (!allowControl) {
+                  // 点击开启被控模式，跳转到连接页面选择被控端
+                  navigate('/connection', { state: { role: 'controlled' } });
+                }
+              }}
+              style={{ marginBottom: 16, height: 50, fontSize: 16 }}
+            >
+              {allowControl ? '已开启被控模式（等待连接中）' : '开启被控模式'}
+            </Button>
 
-            {/* 设备码 */}
-            <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                设备码（分享给他人）
+            {!allowControl && (
+              <Text type="secondary" style={{ display: 'block', textAlign: 'center' }}>
+                开启后，他人可以通过设备码远程控制你的电脑
+              </Text>
+            )}
+
+            {allowControl && (
+              <>
+                <Divider />
+
+                <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                  <div style={{ marginBottom: 8 }}>
+                    <Tag
+                      icon={<WifiOutlined />}
+                      color="success"
+                    >
+                      在线 - 等待连接
+                    </Tag>
+                  </div>
+                  <Title level={4} style={{ margin: 0 }}>我的电脑</Title>
+                  <Text type="secondary">Windows</Text>
+                </div>
+
+                <Divider />
+
+                {/* 设备码 */}
+                <div style={{ marginBottom: 16 }}>
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                    你的设备码
+                  </Text>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Input
+                      value={deviceCode}
+                      readOnly
+                      disabled={loadingCode}
+                      style={{ fontWeight: 'bold', fontSize: 18, textAlign: 'center', letterSpacing: 4 }}
+                      size="large"
+                    />
+                    <Button size="large" icon={<CopyOutlined />} onClick={copyDeviceCode} disabled={!deviceCode}>
+                      复制
+                    </Button>
+                  </Space.Compact>
+                </div>
+
+                {/* 临时密码 */}
+                <div style={{ marginBottom: 16 }}>
+                  <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>连接密码</Text>
+                  <Space.Compact style={{ width: '100%' }}>
+                    <Password
+                      value={tempPassword}
+                      readOnly
+                      size="large"
+                      style={{ textAlign: 'center' }}
+                    />
+                    <Button
+                      size="large"
+                      icon={<SettingOutlined />}
+                      onClick={() => navigate('/devices')}
+                    >
+                      修改
+                    </Button>
+                  </Space.Compact>
+                </div>
+              </>
+            )}
+          </Card>
+        </Col>
               </Text>
               <Space.Compact style={{ width: '100%' }}>
                 <Input
@@ -201,7 +265,7 @@ const HomePage: React.FC = () => {
             <div style={{ marginBottom: 16 }}>
               <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>对方设备码</Text>
               <Input
-                placeholder="请输入6位数字"
+                placeholder="请输入9位数字"
                 value={remoteCode}
                 onChange={(e) => setRemoteCode(e.target.value.replace(/\D/g, '').slice(0, 9))}
                 maxLength={9}
