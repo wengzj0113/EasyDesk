@@ -1,17 +1,28 @@
 const mongoose = require('mongoose');
-const { v4: uuidv4 } = require('uuid');
+
+// 生成6位纯数字设备码
+const generateDeviceCode = () => {
+  const digits = '0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += digits[Math.floor(Math.random() * digits.length)];
+  }
+  // 确保不以0开头
+  if (code[0] === '0') code = '1' + code.substring(1);
+  return code;
+};
 
 const deviceSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: false // 允许未登录用户使用
+    required: false
   },
   deviceCode: {
     type: String,
     required: true,
     unique: true,
-    default: () => uuidv4().substring(0, 6).toUpperCase()
+    default: generateDeviceCode
   },
   deviceName: {
     type: String,
@@ -20,6 +31,11 @@ const deviceSchema = new mongoose.Schema({
   accessPassword: {
     type: String,
     required: true
+  },
+  // 长期密码（绑定设备后使用）
+  permanentPassword: {
+    type: String,
+    default: null
   },
   platform: {
     type: String,

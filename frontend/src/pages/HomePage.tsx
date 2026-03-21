@@ -201,12 +201,12 @@ const HomePage: React.FC = () => {
             <div style={{ marginBottom: 16 }}>
               <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>对方设备码</Text>
               <Input
-                placeholder="请输入6位设备码"
+                placeholder="请输入6位数字"
                 value={remoteCode}
-                onChange={(e) => setRemoteCode(e.target.value.toUpperCase())}
+                onChange={(e) => setRemoteCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 maxLength={6}
                 size="large"
-                style={{ textTransform: 'uppercase', letterSpacing: 4, fontWeight: 'bold', fontSize: 18, textAlign: 'center' }}
+                style={{ letterSpacing: 8, fontWeight: 'bold', fontSize: 20, textAlign: 'center' }}
               />
             </div>
 

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Typography, Button, Table, Tag, Modal, Form, Input, Space, Popconfirm, message, Empty, Spin, Divider, Descriptions, QRCode } from 'antd';
+import { Card, Typography, Button, Table, Tag, Modal, Form, Input, Space, Popconfirm, message, Empty, Spin, Divider, Descriptions, QRCode, Radio } from 'antd';
 import { ArrowLeftOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, QrcodeOutlined, ReloadOutlined, LinkOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { deviceAPI } from '../services/api';
@@ -295,14 +295,25 @@ const DeviceManagementPage: React.FC = () => {
       >
         <Form form={passwordForm} layout="vertical" onFinish={handleUpdatePassword}>
           <Form.Item
+            label="密码类型"
+            name="type"
+            initialValue="access"
+          >
+            <Radio.Group>
+              <Radio.Button value="access">临时密码</Radio.Button>
+              <Radio.Button value="permanent">长期密码</Radio.Button>
+            </Radio.Group>
+          </Form.Item>
+          <Form.Item
             label="新密码"
             name="newPassword"
             rules={[
               { required: true, message: '请输入新密码' },
-              { min: 6, message: '密码至少6位' }
+              { min: 6, message: '密码至少6位纯数字' },
+              { pattern: /^\d+$/, message: '密码必须是纯数字' }
             ]}
           >
-            <Input.Password placeholder="请输入新密码" />
+            <Input.Password placeholder="请输入6位纯数字密码" maxLength={6} />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block>

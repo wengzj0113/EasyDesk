@@ -3,18 +3,38 @@ const router = express.Router();
 const Device = require('../models/Device');
 const authMiddleware = require('../middleware/auth');
 
-// 获取设备码（返回 accessPassword 供用户分享）
+// 生成6位纯数字设备码
+const generateDeviceCode = () => {
+  const digits = '0123456789';
+  let code = '';
+  for (let i = 0; i < 6; i++) {
+    code += digits[Math.floor(Math.random() * digits.length)];
+  }
+  if (code[0] === '0') code = '1' + code.substring(1);
+  return code;
+};
+
+// 生成纯数字密码
+const generatePassword = (len = 6) => {
+  const chars = '0123456789';
+  let pwd = '';
+  for (let i = 0; i < len; i++) {
+    pwd += chars[Math.floor(Math.random() * chars.length)];
+  }
+  return pwd;
+};
+
+// 获取设备码
 router.get('/code', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
-
     let device = await Device.findOne({ userId });
 
     if (!device) {
       device = new Device({
         userId,
         platform: req.headers['user-agent']?.includes('Windows') ? 'windows' : 'mac',
-        accessPassword: Math.random().toString(36).substring(2, 8).toUpperCase()
+        accessPassword: generatePassword()
       });
       await device.save();
     }
@@ -23,18 +43,19 @@ router.get('/code', authMiddleware, async (req, res) => {
       deviceCode: device.deviceCode,
       deviceName: device.deviceName,
       isOnline: device.isOnline,
-      accessPassword: device.accessPassword
+      accessPassword: device.accessPassword,
+      permanentPassword: device.permanentPassword || null
     });
   } catch (error) {
     res.status(500).json({ error: '获取设备码失败' });
   }
 });
 
-// 更新设备密码
+// 更新临时密码
 router.post('/password', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
-    const { newPassword } = req.body;
+    const { newPassword, type } = req.body;
 
     if (!newPassword || newPassword.length < 4) {
       return res.status(400).json({ error: '密码长度不能少于4位' });
@@ -45,7 +66,11 @@ router.post('/password', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: '设备不存在' });
     }
 
-    device.accessPassword = newPassword;
+    if (type === 'permanent') {
+      device.permanentPassword = newPassword;
+    } else {
+      device.accessPassword = newPassword;
+    }
     await device.save();
 
     res.json({ message: '密码更新成功' });
@@ -54,15 +79,32 @@ router.post('/password', authMiddleware, async (req, res) => {
   }
 });
 
+// 生成新的临时密码
+router.post('/password/regenerate', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const device = await Device.findOne({ userId });
+
+    if (!device) {
+      return res.status(404).json({ error: '设备不存在' });
+    }
+
+    device.accessPassword = generatePassword();
+    await device.save();
+
+    res.json({ message: '新密码已生成', accessPassword: device.accessPassword });
+  } catch (error) {
+    res.status(500).json({ error: '生成密码失败' });
+  }
+});
+
 // 获取我的设备列表
 router.get('/my-devices', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
-
     const devices = await Device.find({ userId })
       .populate('boundDevices.deviceId', 'deviceCode deviceName isOnline')
       .lean();
-
     res.json({ devices });
   } catch (error) {
     res.status(500).json({ error: '获取设备列表失败' });
@@ -79,7 +121,7 @@ router.post('/bind', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: '设备码不能为空' });
     }
 
-    const targetDevice = await Device.findOne({ deviceCode: deviceCode.toUpperCase() });
+    const targetDevice = await Device.findOne({ deviceCode });
     if (!targetDevice) {
       return res.status(404).json({ error: '设备不存在' });
     }
