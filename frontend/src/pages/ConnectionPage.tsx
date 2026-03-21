@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Typography, message, Card, Alert, Steps, Radio, Space, Layout } from 'antd';
-import { ArrowLeftOutlined, DesktopOutlined, CheckCircleOutlined, LoadingOutlined, MonitorOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Typography, message, Card, Alert, Steps, Radio, Space, Layout, Tooltip } from 'antd';
+import { ArrowLeftOutlined, DesktopOutlined, CheckCircleOutlined, LoadingOutlined, MonitorOutlined, SwapOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { getSessionDeviceCode, getSessionPassword } from '../utils/deviceCode';
@@ -22,7 +22,7 @@ const ConnectionPage: React.FC = () => {
   const [connectionStatus, setConnectionStatus] = useState<'idle' | 'requesting' | 'connected'>('idle');
   const [connectionInfo, setConnectionInfo] = useState<any>(null);
   const [connectionMode, setConnectionMode] = useState<'controller' | 'controlled'>(
-    (locationState?.role as 'controller' | 'controlled') || 'controller'
+    (locationState?.role as 'controller' | 'controlled') || 'controlled'
   );
 
   // 从 HomePage 带参跳转时自动填充表单
@@ -88,6 +88,24 @@ const ConnectionPage: React.FC = () => {
   if (connectionMode === 'controlled') {
     return (
       <Layout style={{ minHeight: '100vh', background: '#000' }}>
+        {/* 切换到控制端的按钮 */}
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          right: 16,
+          zIndex: 1000
+        }}>
+          <Tooltip title="切换到控制端">
+            <Button
+              type="primary"
+              icon={<SwapOutlined />}
+              onClick={() => setConnectionMode('controller')}
+              size="large"
+            >
+              切换到控制端
+            </Button>
+          </Tooltip>
+        </div>
         <Content style={{ padding: 0, height: '100%' }}>
           <RemoteDesktop
             connectionId="controlled-session"
