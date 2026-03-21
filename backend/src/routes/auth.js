@@ -2,11 +2,30 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
+const { validateUsername, validateEmail, validatePassword } = require('../middleware/validator');
+const { logError } = require('../middleware/logger');
+const config = require('../config');
 
 // 用户注册
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
+
+    // 输入验证
+    const usernameValidation = validateUsername(username);
+    if (!usernameValidation.valid) {
+      return res.status(400).json({ error: usernameValidation.error });
+    }
+
+    const emailValidation = validateEmail(email);
+    if (!emailValidation.valid) {
+      return res.status(400).json({ error: emailValidation.error });
+    }
+
+    const passwordValidation = validatePassword(password);
+    if (!passwordValidation.valid) {
+      return res.status(400).json({ error: passwordValidation.error });
+    }
 
     // 检查用户是否存在
     const existingUser = await User.findOne({ $or: [{ username }, { email }] });
@@ -21,8 +40,8 @@ router.post('/register', async (req, res) => {
     // 生成token
     const token = jwt.sign(
       { userId: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE }
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
     );
 
     res.status(201).json({
@@ -37,7 +56,8 @@ router.post('/register', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: '注册失败', details: error.message });
+    logError('用户注册失败', error);
+    res.status(500).json({ error: '注册失败' });
   }
 });
 
@@ -45,6 +65,10 @@ router.post('/register', async (req, res) => {
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
+
+    if (!username || !password) {
+      return res.status(400).json({ error: '用户名和密码不能为空' });
+    }
 
     // 查找用户
     const user = await User.findOne({ username });
@@ -61,8 +85,8 @@ router.post('/login', async (req, res) => {
     // 生成token
     const token = jwt.sign(
       { userId: user._id },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRE }
+      config.jwt.secret,
+      { expiresIn: config.jwt.expiresIn }
     );
 
     res.json({
@@ -77,7 +101,8 @@ router.post('/login', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: '登录失败', details: error.message });
+    logError('用户登录失败', error);
+    res.status(500).json({ error: '登录失败' });
   }
 });
 

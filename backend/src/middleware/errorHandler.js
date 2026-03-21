@@ -1,5 +1,7 @@
+const { logError, formatLog } = require('./logger');
+
 const errorHandler = (err, req, res, next) => {
-  console.error('Error:', err);
+  logError('未处理的错误', err);
 
   // Mongoose 验证错误
   if (err.name === 'ValidationError') {
@@ -19,6 +21,11 @@ const errorHandler = (err, req, res, next) => {
 
   if (err.name === 'TokenExpiredError') {
     return res.status(401).json({ error: '令牌已过期' });
+  }
+
+  // MongoDB CastError (无效的 ObjectId)
+  if (err.name === 'CastError') {
+    return res.status(400).json({ error: '无效的ID格式' });
   }
 
   // 默认错误

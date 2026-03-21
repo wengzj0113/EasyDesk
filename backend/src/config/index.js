@@ -6,8 +6,7 @@ module.exports = {
   mongodb: {
     uri: process.env.MONGODB_URI || 'mongodb://localhost:27017/easydesk',
     options: {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
+      maxPoolSize: 10,
     }
   },
 
@@ -18,13 +17,24 @@ module.exports = {
 
   // JWT配置
   jwt: {
-    secret: process.env.JWT_SECRET || 'your-secret-key-change-this-in-production',
+    secret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production'
+      ? (() => { throw new Error('JWT_SECRET is required in production'); })()
+      : 'dev-secret-key-do-not-use-in-production'),
     expiresIn: process.env.JWT_EXPIRE || '7d',
   },
 
-  // CORS配置
+  // CORS配置：生产环境必须明确指定允许的域名
   cors: {
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
+    origin: (() => {
+      if (process.env.NODE_ENV === 'production') {
+        if (!process.env.CORS_ORIGIN) {
+          console.warn('警告: 生产环境未设置 CORS_ORIGIN，将只允许 localhost');
+          return 'http://localhost:3000';
+        }
+        return process.env.CORS_ORIGIN;
+      }
+      return process.env.CORS_ORIGIN || 'http://localhost:3000';
+    })(),
     credentials: true,
   },
 

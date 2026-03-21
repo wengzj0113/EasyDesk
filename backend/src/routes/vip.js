@@ -2,6 +2,14 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth');
+const { logError } = require('../middleware/logger');
+
+// VIP套餐配置
+const VIP_PLANS = {
+  'month': { duration: 30, price: 9.9 },
+  'quarter': { duration: 90, price: 26.9 },
+  'year': { duration: 365, price: 89.9 }
+};
 
 // 获取VIP状态
 router.get('/status', authMiddleware, async (req, res) => {
@@ -13,17 +21,19 @@ router.get('/status', authMiddleware, async (req, res) => {
       return res.status(404).json({ error: '用户不存在' });
     }
 
-    const isVip = user.vipStatus && user.vipExpireTime > new Date();
+    const now = new Date();
+    const isVip = user.vipStatus && user.vipExpireTime && user.vipExpireTime > now;
 
     res.json({
       isVip,
       vipExpireTime: user.vipExpireTime,
       remainingDays: isVip
-        ? Math.ceil((user.vipExpireTime - new Date()) / (1000 * 60 * 60 * 24))
+        ? Math.max(0, Math.ceil((user.vipExpireTime - now) / (1000 * 60 * 60 * 24)))
         : 0
     });
   } catch (error) {
-    res.status(500).json({ error: '获取VIP状态失败', details: error.message });
+    logError('获取VIP状态失败', error);
+    res.status(500).json({ error: '获取VIP状态失败' });
   }
 });
 
@@ -33,39 +43,32 @@ router.post('/payment', authMiddleware, async (req, res) => {
     const userId = req.userId;
     const { plan } = req.body;
 
-    // 套餐配置
-    const plans = {
-      'month': { duration: 30, price: 9.9 },
-      'quarter': { duration: 90, price: 26.9 },
-      'year': { duration: 365, price: 89.9 }
-    };
-
-    const selectedPlan = plans[plan];
-    if (!selectedPlan) {
-      return res.status(400).json({ error: '无效的套餐' });
+    if (!plan || !VIP_PLANS[plan]) {
+      return res.status(400).json({ error: '无效的套餐，请选择 month、quarter 或 year' });
     }
+
+    const selectedPlan = VIP_PLANS[plan];
+
+    // 生成订单号
+    const orderId = `VIP_${Date.now()}_${userId}`;
 
     // 这里应该集成支付网关（微信支付、支付宝等）
     // 简化处理，直接返回支付信息
     const paymentInfo = {
-      orderId: `VIP_${Date.now()}_${userId}`,
+      orderId,
       amount: selectedPlan.price,
       plan: plan,
-      duration: selectedPlan.duration
+      duration: selectedPlan.duration,
+      currency: 'CNY'
     };
-
-    // 实际项目中，这里应该：
-    // 1. 调用支付网关API创建订单
-    // 2. 返回支付参数给前端
-    // 3. 监听支付回调
-    // 4. 支付成功后更新用户VIP状态
 
     res.json({
       message: '订单创建成功',
       payment: paymentInfo
     });
   } catch (error) {
-    res.status(500).json({ error: '创建支付订单失败', details: error.message });
+    logError('创建支付订单失败', error);
+    res.status(500).json({ error: '创建支付订单失败' });
   }
 });
 
@@ -73,6 +76,10 @@ router.post('/payment', authMiddleware, async (req, res) => {
 router.post('/callback', async (req, res) => {
   try {
     const { orderId, status, userId, plan } = req.body;
+
+    if (!orderId || !userId) {
+      return res.status(400).json({ error: '缺少必要参数' });
+    }
 
     if (status !== 'success') {
       return res.json({ message: '支付失败' });
@@ -83,13 +90,7 @@ router.post('/callback', async (req, res) => {
       return res.status(404).json({ error: '用户不存在' });
     }
 
-    // 套餐配置
-    const plans = {
-      'month': 30,
-      'quarter': 90,
-      'year': 365
-    };
-    const duration = plans[plan] || 30;
+    const duration = VIP_PLANS[plan]?.duration || VIP_PLANS['month'].duration;
 
     // 计算VIP过期时间
     const now = new Date();
@@ -102,7 +103,8 @@ router.post('/callback', async (req, res) => {
 
     res.json({ message: 'VIP激活成功' });
   } catch (error) {
-    res.status(500).json({ error: '处理支付回调失败', details: error.message });
+    logError('处理支付回调失败', error);
+    res.status(500).json({ error: '处理支付回调失败' });
   }
 });
 
@@ -112,12 +114,11 @@ router.post('/simulate-payment', authMiddleware, async (req, res) => {
     const userId = req.userId;
     const { plan } = req.body;
 
-    const plans = {
-      'month': 30,
-      'quarter': 90,
-      'year': 365
-    };
-    const duration = plans[plan] || 30;
+    if (!plan || !VIP_PLANS[plan]) {
+      return res.status(400).json({ error: '无效的套餐' });
+    }
+
+    const duration = VIP_PLANS[plan].duration;
 
     const user = await User.findById(userId);
     if (!user) {
@@ -135,10 +136,12 @@ router.post('/simulate-payment', authMiddleware, async (req, res) => {
     res.json({
       message: 'VIP激活成功',
       vipStatus: true,
-      vipExpireTime: expireTime
+      vipExpireTime: expireTime,
+      remainingDays: duration
     });
   } catch (error) {
-    res.status(500).json({ error: '操作失败', details: error.message });
+    logError('模拟支付失败', error);
+    res.status(500).json({ error: '操作失败' });
   }
 });
 

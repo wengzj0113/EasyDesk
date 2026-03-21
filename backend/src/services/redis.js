@@ -1,5 +1,6 @@
 const redis = require('redis');
 const config = require('../config');
+const { logInfo, logError, logWarn } = require('../middleware/logger');
 
 class RedisService {
   constructor() {
@@ -14,7 +15,7 @@ class RedisService {
         socket: {
           reconnectStrategy: (retries) => {
             if (retries > 10) {
-              console.error('Redis reconnection failed after 10 attempts');
+              logError('Redis 重连失败，已达最大重试次数');
               return new Error('Redis reconnection failed');
             }
             return Math.min(retries * 100, 3000);
@@ -23,23 +24,23 @@ class RedisService {
       });
 
       this.client.on('error', (err) => {
-        console.error('Redis error:', err);
+        logError('Redis 错误', err);
         this.isConnected = false;
       });
 
       this.client.on('connect', () => {
-        console.log('Redis connected successfully');
+        logInfo('Redis 连接成功');
         this.isConnected = true;
       });
 
       this.client.on('ready', () => {
-        console.log('Redis ready');
+        logInfo('Redis 就绪');
       });
 
       await this.client.connect();
       return this.client;
     } catch (error) {
-      console.error('Redis connection error:', error);
+      logError('Redis 连接失败', error);
       // 不阻塞应用启动
       return null;
     }

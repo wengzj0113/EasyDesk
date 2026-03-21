@@ -17,15 +17,23 @@ interface Device {
   lastSeen: string;
 }
 
+export interface ConnectionInfo {
+  targetDeviceCode: string;
+  targetDeviceName?: string;
+  status: 'connecting' | 'connected' | 'disconnected' | 'failed';
+  startTime?: number;
+  connectionId?: string;
+}
+
 interface AppState {
   user: User | null;
   token: string | null;
   devices: Device[];
-  currentConnection: any;
+  currentConnection: ConnectionInfo | null;
   setUser: (user: User | null) => void;
   setToken: (token: string | null) => void;
   setDevices: (devices: Device[]) => void;
-  setCurrentConnection: (connection: any) => void;
+  setCurrentConnection: (connection: ConnectionInfo | null) => void;
   clearUser: () => void;
 }
 

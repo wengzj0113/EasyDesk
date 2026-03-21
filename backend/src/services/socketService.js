@@ -1,8 +1,13 @@
 
 const config = require('../config');
+const { logInfo, logWarn, logError, formatLog } = require('../middleware/logger');
 
 // 存储在线设备
-const onlineDevices = new Map(); // deviceCode -> { socketId, role, password }
+const onlineDevices = new Map(); // deviceCode -> { socketId, role, password, lastHeartbeat }
+
+// 心跳超时配置（毫秒）
+const HEARTBEAT_TIMEOUT = 60000; // 60秒无心跳认为离线
+const HEARTBEAT_INTERVAL = 30000; // 每30秒检查一次
 
 // 动态构建 ICE 服务器列表（每次连接时调用，以便运行中更新配置）
 function buildIceServers() {
@@ -23,16 +28,29 @@ function buildIceServers() {
   return { iceServers };
 }
 
+// 检查设备心跳超时
+function checkHeartbeatTimeout(io) {
+  const now = Date.now();
+
+  for (const [deviceCode, deviceInfo] of onlineDevices) {
+    if (now - deviceInfo.lastHeartbeat > HEARTBEAT_TIMEOUT) {
+      logWarn(`设备心跳超时: ${deviceCode}`);
+      onlineDevices.delete(deviceCode);
+      io.emit('device-offline', { deviceCode, reason: 'timeout' });
+    }
+  }
+}
+
 function initializeSocketIO(io) {
   io.on('connection', (socket) => {
-    console.log(`[Socket.IO] New connection: ${socket.id}`);
+    logInfo('新的 WebSocket 连接', { socketId: socket.id });
 
     // 设备注册/上线
     socket.on('register', (data) => {
       const { deviceCode, password, role } = data;
 
-      if (!deviceCode) {
-        socket.emit('error', { message: '设备码不能为空' });
+      if (!deviceCode || typeof deviceCode !== 'string' || deviceCode.length !== 9) {
+        socket.emit('error', { message: '设备码格式不正确' });
         return;
       }
 
@@ -44,15 +62,18 @@ function initializeSocketIO(io) {
       }
 
       // 保存设备信息
-      onlineDevices.set(deviceCode, {
+      const deviceInfo = {
         socketId: socket.id,
         password: password,
         role: role || 'controlled', // controlled(被控) 或 controller(控制端)
-        deviceCode
-      });
+        deviceCode,
+        lastHeartbeat: Date.now()
+      };
 
+      onlineDevices.set(deviceCode, deviceInfo);
       socket.deviceCode = deviceCode;
-      console.log(`[Socket.IO] Device registered: ${deviceCode} (${role})`);
+
+      logInfo('设备注册成功', { deviceCode, role: role || 'controlled' });
 
       // 通知设备注册成功
       socket.emit('registered', { success: true, deviceCode });
@@ -64,6 +85,12 @@ function initializeSocketIO(io) {
     // 请求连接远程设备
     socket.on('request-connect', (data) => {
       const { targetDeviceCode, password } = data;
+
+      if (!targetDeviceCode || !password) {
+        socket.emit('connect-failed', { error: '设备码和密码不能为空' });
+        return;
+      }
+
       const target = onlineDevices.get(targetDeviceCode);
 
       if (!target) {
@@ -71,7 +98,7 @@ function initializeSocketIO(io) {
         return;
       }
 
-      console.log(`[Socket.IO] Connection request: ${socket.deviceCode} -> ${targetDeviceCode}`);
+      logInfo('收到连接请求', { from: socket.deviceCode, to: targetDeviceCode });
 
       // 向目标设备发送连接请求
       io.to(target.socketId).emit('incoming-connection', {
@@ -85,6 +112,12 @@ function initializeSocketIO(io) {
     // 目标设备接受连接
     socket.on('accept-connection', (data) => {
       const { targetDeviceCode } = data;
+
+      if (!targetDeviceCode) {
+        socket.emit('error', { message: '目标设备码不能为空' });
+        return;
+      }
+
       const target = onlineDevices.get(targetDeviceCode);
 
       if (!target) {
@@ -92,7 +125,7 @@ function initializeSocketIO(io) {
         return;
       }
 
-      console.log(`[Socket.IO] Connection accepted: ${targetDeviceCode} -> ${socket.deviceCode}`);
+      logInfo('连接已接受', { from: targetDeviceCode, to: socket.deviceCode });
 
       // 通知发起端连接已接受
       io.to(target.socketId).emit('connection-accepted', {
@@ -110,8 +143,10 @@ function initializeSocketIO(io) {
     // 目标设备拒绝连接
     socket.on('reject-connection', (data) => {
       const { targetDeviceCode, reason } = data;
-      const target = onlineDevices.get(targetDeviceCode);
 
+      if (!targetDeviceCode) return;
+
+      const target = onlineDevices.get(targetDeviceCode);
       if (target) {
         io.to(target.socketId).emit('connection-rejected', {
           reason: reason || '对方拒绝连接'
@@ -122,6 +157,9 @@ function initializeSocketIO(io) {
     // 交换 SDP (WebRTC 会话描述)
     socket.on('sdp-offer', (data) => {
       const { targetDeviceCode, sdp } = data;
+
+      if (!targetDeviceCode || !sdp) return;
+
       const target = onlineDevices.get(targetDeviceCode);
 
       if (target) {
@@ -134,6 +172,9 @@ function initializeSocketIO(io) {
 
     socket.on('sdp-answer', (data) => {
       const { targetDeviceCode, sdp } = data;
+
+      if (!targetDeviceCode || !sdp) return;
+
       const target = onlineDevices.get(targetDeviceCode);
 
       if (target) {
@@ -147,6 +188,9 @@ function initializeSocketIO(io) {
     // 交换 ICE Candidate
     socket.on('ice-candidate', (data) => {
       const { targetDeviceCode, candidate } = data;
+
+      if (!targetDeviceCode || !candidate) return;
+
       const target = onlineDevices.get(targetDeviceCode);
 
       if (target) {
@@ -160,6 +204,9 @@ function initializeSocketIO(io) {
     // 远程控制指令
     socket.on('control-command', (data) => {
       const { targetDeviceCode, command } = data;
+
+      if (!targetDeviceCode || !command) return;
+
       const target = onlineDevices.get(targetDeviceCode);
 
       if (target) {
@@ -181,23 +228,39 @@ function initializeSocketIO(io) {
 
     // 心跳保活
     socket.on('heartbeat', () => {
-      socket.emit('heartbeat-ack');
+      const deviceInfo = onlineDevices.get(socket.deviceCode);
+      if (deviceInfo) {
+        deviceInfo.lastHeartbeat = Date.now();
+        socket.emit('heartbeat-ack');
+      }
     });
 
     // 断开连接
     socket.on('disconnect', () => {
       if (socket.deviceCode) {
+        const deviceInfo = onlineDevices.get(socket.deviceCode);
         onlineDevices.delete(socket.deviceCode);
-        console.log(`[Socket.IO] Device disconnected: ${socket.deviceCode}`);
-        io.emit('device-offline', { deviceCode: socket.deviceCode });
+
+        // 只有设备真的离线才广播（避免重复广播）
+        if (deviceInfo) {
+          logInfo('设备断开连接', { deviceCode: socket.deviceCode });
+          io.emit('device-offline', { deviceCode: socket.deviceCode });
+        }
       }
     });
   });
 
-  // 定期清理离线设备
+  // 定期检查心跳超时
   setInterval(() => {
-    // 这里可以添加超时检测逻辑
-  }, 30000);
+    checkHeartbeatTimeout(io);
+  }, HEARTBEAT_INTERVAL);
+
+  // 定期输出在线设备统计
+  setInterval(() => {
+    if (onlineDevices.size > 0) {
+      logInfo(`在线设备数量: ${onlineDevices.size}`);
+    }
+  }, 60000);
 
   return io;
 }

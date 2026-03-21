@@ -3,6 +3,8 @@ const router = express.Router();
 const Connection = require('../models/Connection');
 const Device = require('../models/Device');
 const authMiddleware = require('../middleware/auth');
+const { logError } = require('../middleware/logger');
+const { validateDeviceCode, validateConnectionPassword, validateObjectId, validatePagination } = require('../middleware/validator');
 
 // 建立连接
 router.post('/connect', async (req, res) => {
@@ -10,8 +12,19 @@ router.post('/connect', async (req, res) => {
     const { deviceCode, password } = req.body;
     const userId = req.userId; // 可能为空，支持免登录连接
 
+    // 输入验证
+    const codeValidation = validateDeviceCode(deviceCode);
+    if (!codeValidation.valid) {
+      return res.status(400).json({ error: codeValidation.error });
+    }
+
+    const pwdValidation = validateConnectionPassword(password);
+    if (!pwdValidation.valid) {
+      return res.status(400).json({ error: pwdValidation.error });
+    }
+
     // 查找目标设备
-    const targetDevice = await Device.findOne({ deviceCode: deviceCode.toUpperCase() });
+    const targetDevice = await Device.findOne({ deviceCode: codeValidation.normalized });
     if (!targetDevice) {
       return res.status(404).json({ error: '设备不存在' });
     }
@@ -49,7 +62,8 @@ router.post('/connect', async (req, res) => {
       }
     });
   } catch (error) {
-    res.status(500).json({ error: '建立连接失败', details: error.message });
+    logError('建立连接失败', error);
+    res.status(500).json({ error: '建立连接失败' });
   }
 });
 
@@ -58,6 +72,13 @@ router.post('/disconnect', async (req, res) => {
   try {
     const userId = req.userId;
     const { connectionId } = req.body;
+
+    if (connectionId) {
+      const idValidation = validateObjectId(connectionId);
+      if (!idValidation.valid) {
+        return res.status(400).json({ error: idValidation.error });
+      }
+    }
 
     const connection = await Connection.findOne({
       _id: connectionId,
@@ -74,7 +95,8 @@ router.post('/disconnect', async (req, res) => {
 
     res.json({ message: '连接已断开' });
   } catch (error) {
-    res.status(500).json({ error: '断开连接失败', details: error.message });
+    logError('断开连接失败', error);
+    res.status(500).json({ error: '断开连接失败' });
   }
 });
 
@@ -83,6 +105,13 @@ router.get('/status', async (req, res) => {
   try {
     const userId = req.userId;
     const { connectionId } = req.query;
+
+    if (connectionId) {
+      const idValidation = validateObjectId(connectionId);
+      if (!idValidation.valid) {
+        return res.status(400).json({ error: idValidation.error });
+      }
+    }
 
     const query = { userId };
     if (connectionId) {
@@ -97,7 +126,8 @@ router.get('/status', async (req, res) => {
 
     res.json({ connections });
   } catch (error) {
-    res.status(500).json({ error: '获取连接状态失败', details: error.message });
+    logError('获取连接状态失败', error);
+    res.status(500).json({ error: '获取连接状态失败' });
   }
 });
 
@@ -105,7 +135,9 @@ router.get('/status', async (req, res) => {
 router.get('/history', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
-    const { page = 1, pageSize = 20, startDate, endDate } = req.query;
+    const { page, pageSize, startDate, endDate } = req.query;
+
+    const { page: p, pageSize: ps } = validatePagination(page, pageSize);
 
     const query = { userId };
 
@@ -118,8 +150,8 @@ router.get('/history', authMiddleware, async (req, res) => {
 
     const connections = await Connection.find(query)
       .sort({ startTime: -1 })
-      .skip((Number(page) - 1) * Number(pageSize))
-      .limit(Number(pageSize))
+      .skip((p - 1) * ps)
+      .limit(ps)
       .populate('deviceId', 'deviceCode deviceName platform')
       .lean();
 
@@ -128,14 +160,15 @@ router.get('/history', authMiddleware, async (req, res) => {
     res.json({
       connections,
       pagination: {
-        page: Number(page),
-        pageSize: Number(pageSize),
+        page: p,
+        pageSize: ps,
         total,
-        totalPages: Math.ceil(total / Number(pageSize))
+        totalPages: Math.ceil(total / ps)
       }
     });
   } catch (error) {
-    res.status(500).json({ error: '获取连接历史失败', details: error.message });
+    logError('获取连接历史失败', error);
+    res.status(500).json({ error: '获取连接历史失败' });
   }
 });
 
@@ -144,6 +177,11 @@ router.get('/:connectionId', authMiddleware, async (req, res) => {
   try {
     const { connectionId } = req.params;
     const userId = req.userId;
+
+    const idValidation = validateObjectId(connectionId);
+    if (!idValidation.valid) {
+      return res.status(400).json({ error: idValidation.error });
+    }
 
     const connection = await Connection.findOne({
       _id: connectionId,
@@ -158,7 +196,8 @@ router.get('/:connectionId', authMiddleware, async (req, res) => {
 
     res.json({ connection });
   } catch (error) {
-    res.status(500).json({ error: '获取连接详情失败', details: error.message });
+    logError('获取连接详情失败', error);
+    res.status(500).json({ error: '获取连接详情失败' });
   }
 });
 
@@ -167,6 +206,11 @@ router.post('/quality', authMiddleware, async (req, res) => {
   try {
     const { connectionId } = req.body;
     const { resolution, fps, latency } = req.body;
+
+    const idValidation = validateObjectId(connectionId);
+    if (!idValidation.valid) {
+      return res.status(400).json({ error: idValidation.error });
+    }
 
     const connection = await Connection.findOneAndUpdate(
       { _id: connectionId, userId: req.userId },
@@ -183,7 +227,8 @@ router.post('/quality', authMiddleware, async (req, res) => {
 
     res.json({ message: '质量信息已更新', connection });
   } catch (error) {
-    res.status(500).json({ error: '更新失败', details: error.message });
+    logError('更新质量信息失败', error);
+    res.status(500).json({ error: '更新质量信息失败' });
   }
 });
 

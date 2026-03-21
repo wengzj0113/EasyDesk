@@ -1,4 +1,6 @@
 const jwt = require('jsonwebtoken');
+const config = require('../config');
+const { logError } = require('./logger');
 
 const authMiddleware = (req, res, next) => {
   try {
@@ -8,10 +10,11 @@ const authMiddleware = (req, res, next) => {
       return res.status(401).json({ error: '未提供认证令牌' });
     }
 
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const decoded = jwt.verify(token, config.jwt.secret);
     req.userId = decoded.userId;
     next();
   } catch (error) {
+    logError('JWT 验证失败', error);
     res.status(401).json({ error: '无效的认证令牌' });
   }
 };
@@ -22,7 +25,7 @@ const optionalAuthMiddleware = (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
 
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const decoded = jwt.verify(token, config.jwt.secret);
       req.userId = decoded.userId;
     }
     next();
