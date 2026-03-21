@@ -240,7 +240,7 @@ const SettingsPage: React.FC = () => {
 
       <Card style={{ marginTop: 24 }} title={<><InfoCircleOutlined /> 关于</>}>
         <Space direction="vertical">
-          <Text>EasyDesk 远程桌面 v1.0.0</Text>
+          <Text>EasyDesk 远程桌面 v1.1.0</Text>
           <Text type="secondary">极简远程桌面，简单远控</Text>
         </Space>
       </Card>
