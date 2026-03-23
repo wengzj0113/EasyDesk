@@ -92,9 +92,9 @@ router.post('/password', authMiddleware, async (req, res) => {
     const userId = req.userId;
     const { newPassword, type } = req.body;
 
-    // 验证密码格式（4-8位数字）
-    if (!newPassword || !/^\d{4,8}$/.test(newPassword)) {
-      return res.status(400).json({ error: '密码必须是4-8位数字' });
+    // 验证密码格式（6位数字，增强安全性）
+    if (!newPassword || !/^\d{6}$/.test(newPassword)) {
+      return res.status(400).json({ error: '密码必须是6位数字' });
     }
 
     if (type !== 'permanent' && type !== 'temporary') {

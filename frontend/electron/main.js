@@ -8,6 +8,85 @@ let mainWindow;
 let tray = null;
 let isQuitting = false;
 
+// URL白名单 - 仅允许打开安全的链接
+const ALLOWED_EXTERNAL_URLS = [
+  /^https?:\/\/github\.com\//,
+  /^https?:\/\/docs\.github\.com\//,
+  /^https?:\/\/github\.io\//,
+];
+
+// 验证URL是否安全
+function isUrlAllowed(url) {
+  try {
+    const parsed = new URL(url);
+    // 只允许 https（除 localhost 外）
+    if (parsed.protocol !== 'https:' && parsed.hostname !== 'localhost') {
+      return false;
+    }
+    // 检查是否匹配白名单
+    return ALLOWED_EXTERNAL_URLS.some(regex => regex.test(url));
+  } catch {
+    return false;
+  }
+}
+
+// ========== 文件路径安全验证 ==========
+// 获取允许访问的根目录
+const ALLOWED_BASE_PATHS = [os.homedir()];
+
+// 验证路径是否在允许范围内（防止目录遍历攻击）
+function isPathAllowed(filePath) {
+  try {
+    // 规范化路径
+    const normalizedPath = path.normalize(filePath);
+    // 检查路径是否在允许的目录内
+    return ALLOWED_BASE_PATHS.some(basePath => {
+      const normalizedBase = path.normalize(basePath);
+      return normalizedPath.startsWith(normalizedBase);
+    });
+  } catch {
+    return false;
+  }
+}
+
+// 验证文件路径（用于读取）
+function validateReadPath(filePath) {
+  if (!filePath || typeof filePath !== 'string') {
+    return { valid: false, error: '无效的路径' };
+  }
+  if (!isPathAllowed(filePath)) {
+    return { valid: false, error: '路径超出允许范围' };
+  }
+  // 检查路径中是否有可疑的遍历模式
+  if (filePath.includes('..') || filePath.includes('~')) {
+    return { valid: false, error: '无效的路径格式' };
+  }
+  return { valid: true };
+}
+
+// 验证写入路径
+function validateWritePath(filePath) {
+  const result = validateReadPath(filePath);
+  if (!result.valid) return result;
+
+  // 写入路径不能是系统关键目录
+  const forbiddenPatterns = [
+    /windows[/\\]system32/i,
+    /program files/i,
+    /etc[/\\]/i,
+    /usr[/\\]bin/i,
+    /usr[/\\]sbin/i,
+  ];
+
+  const normalizedPath = path.normalize(filePath);
+  for (const pattern of forbiddenPatterns) {
+    if (pattern.test(normalizedPath)) {
+      return { valid: false, error: '不能写入系统目录' };
+    }
+  }
+  return { valid: true };
+}
+
 function createWindow() {
   // 获取资源路径
   const isDev = !app.isPackaged;
@@ -67,9 +146,13 @@ function createWindow() {
     console.error('Render process gone:', details);
   });
 
-  // 处理外部链接
+  // 处理外部链接 - 添加URL白名单验证
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isUrlAllowed(url)) {
+      shell.openExternal(url);
+    } else {
+      console.warn('Blocked external URL:', url);
+    }
     return { action: 'deny' };
   });
 
@@ -462,9 +545,15 @@ ipcMain.handle('get-home-directory', () => {
   return os.homedir();
 });
 
-// 读取目录内容
+// 读取目录内容（添加路径验证）
 ipcMain.handle('read-directory', async (event, dirPath) => {
   try {
+    // 验证路径
+    const validation = validateReadPath(dirPath);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
     const items = await fs.promises.readdir(dirPath, { withFileTypes: true });
     const result = items.map(item => ({
       name: item.name,
@@ -493,9 +582,15 @@ ipcMain.handle('read-directory', async (event, dirPath) => {
   }
 });
 
-// 获取文件内容（用于小文件预览）
+// 获取文件内容（用于小文件预览，添加路径验证）
 ipcMain.handle('read-file', async (event, filePath, options = {}) => {
   try {
+    // 验证路径
+    const validation = validateReadPath(filePath);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
     const { encoding = 'base64', start = 0, end = null } = options;
     const stats = await fs.promises.stat(filePath);
 
@@ -519,9 +614,15 @@ ipcMain.handle('read-file', async (event, filePath, options = {}) => {
   }
 });
 
-// 删除文件或目录
+// 删除文件或目录（添加路径验证）
 ipcMain.handle('delete-item', async (event, itemPath, isDirectory) => {
   try {
+    // 验证路径
+    const validation = validateWritePath(itemPath);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
     if (isDirectory) {
       await fs.promises.rm(itemPath, { recursive: true });
     } else {
@@ -533,9 +634,20 @@ ipcMain.handle('delete-item', async (event, itemPath, isDirectory) => {
   }
 });
 
-// 重命名文件或目录
+// 重命名文件或目录（添加路径验证）
 ipcMain.handle('rename-item', async (event, oldPath, newName) => {
   try {
+    // 验证旧路径
+    const validation = validateWritePath(oldPath);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
+    // 验证新名称
+    if (!newName || typeof newName !== 'string' || newName.includes('/') || newName.includes('\\') || newName.includes('..')) {
+      return { success: false, error: '无效的文件名' };
+    }
+
     const dir = path.dirname(oldPath);
     const newPath = path.join(dir, newName);
     await fs.promises.rename(oldPath, newPath);
@@ -545,9 +657,15 @@ ipcMain.handle('rename-item', async (event, oldPath, newName) => {
   }
 });
 
-// 创建目录
+// 创建目录（添加路径验证）
 ipcMain.handle('create-directory', async (event, dirPath) => {
   try {
+    // 验证路径
+    const validation = validateWritePath(dirPath);
+    if (!validation.valid) {
+      return { success: false, error: validation.error };
+    }
+
     await fs.promises.mkdir(dirPath, { recursive: true });
     return { success: true };
   } catch (error) {

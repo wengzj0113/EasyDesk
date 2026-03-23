@@ -54,5 +54,7 @@ connectionSchema.index({ deviceId: 1 });
 connectionSchema.index({ userId: 1 });
 connectionSchema.index({ status: 1 });
 connectionSchema.index({ startTime: -1 });
+// 复合索引：优化用户连接历史查询（按时间排序）
+connectionSchema.index({ userId: 1, startTime: -1 });
 
 module.exports = mongoose.model('Connection', connectionSchema);

@@ -88,8 +88,16 @@ router.post('/callback', async (req, res) => {
 
     // 验证支付签名（防止伪造回调）
     const signature = req.headers['x-payment-signature'];
+    const paymentSecret = process.env.PAYMENT_SECRET;
+
+    // 生产环境必须设置支付密钥
+    if (!paymentSecret) {
+      logError('支付密钥未配置', {});
+      return res.status(500).json({ error: '服务器配置错误' });
+    }
+
     const expectedSignature = crypto
-      .createHmac('sha256', process.env.PAYMENT_SECRET || 'default-secret-key')
+      .createHmac('sha256', paymentSecret)
       .update(JSON.stringify({ orderId, status, userId, plan }))
       .digest('hex');
 

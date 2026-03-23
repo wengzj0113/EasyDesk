@@ -32,6 +32,12 @@ import {
   DesktopOutlined
 } from '@ant-design/icons';
 
+// ========== 常量配置 ==========
+const CONFIG = {
+  FILE_LIST_HEIGHT: 400,
+  // 其他常量可以继续添加
+};
+
 interface FileItem {
   name: string;
   path: string;

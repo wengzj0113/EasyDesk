@@ -21,6 +21,29 @@ import ClipboardSync from './ClipboardSync';
 
 const { Text } = Typography;
 
+// 是否为开发环境
+const isDev = process.env.NODE_ENV === 'development';
+const devLog = (...args: unknown[]) => {
+  if (isDev) console.log('[RemoteDesktop]', ...args);
+};
+
+// ========== 常量配置 ==========
+const CONFIG = {
+  // 心跳间隔（毫秒）
+  HEARTBEAT_INTERVAL: 30000,
+  // 鼠标点击延迟（毫秒）
+  MOUSE_CLICK_DELAY: 50,
+  // WebRTC 配置
+  RTC_CONFIG: {
+    VIDEO_WIDTH: 1920,
+    VIDEO_HEIGHT: 1080,
+    MIN_WIDTH: 1280,
+    MIN_HEIGHT: 720,
+    MAX_WIDTH: 1920,
+    MAX_HEIGHT: 1080,
+  },
+};
+
 interface RemoteDesktopProps {
   connectionId: string;
   onDisconnect: () => void;
@@ -104,7 +127,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
 
     // 设置事件回调
     socketService.on('registered', (data) => {
-      console.log('Device registered:', data);
+      devLog('Device registered:', data);
       // 控制端：注册成功后立即向目标设备发起连接请求
       if (role === 'controller' && targetDeviceCode) {
         socketService.requestConnect(targetDeviceCode, password);
@@ -112,12 +135,12 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     });
 
     socketService.on('incoming-connection', (data: any) => {
-      console.log('Incoming connection request:', data);
+      devLog('Incoming connection request:', data);
       setIncomingRequest(data);
     });
 
     socketService.on('connection-accepted', async (data: any) => {
-      console.log('Connection accepted, preparing WebRTC...', data);
+      devLog('Connection accepted, preparing WebRTC...', data);
       // 保存服务器下发的 ICE 配置（含 TURN）
       if (data.iceServers) {
         iceConfigRef.current = data.iceServers;
@@ -133,7 +156,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     });
 
     socketService.on('prepare-sdp', (data: any) => {
-      console.log('Prepare SDP, ICE config received');
+      devLog('Prepare SDP, ICE config received');
       // 被控端保存服务器下发的 ICE 配置
       if (data.iceServers) {
         iceConfigRef.current = data.iceServers;
@@ -146,14 +169,14 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     });
 
     socketService.on('sdp-offer', async (data: any) => {
-      console.log('Received SDP offer from:', data.fromDeviceCode);
+      devLog('Received SDP offer from:', data.fromDeviceCode);
       if (role === 'controlled') {
         await handleSDPOffer(data.sdp, data.fromDeviceCode);
       }
     });
 
     socketService.on('sdp-answer', async (data: any) => {
-      console.log('Received SDP answer');
+      devLog('Received SDP answer');
       if (peerConnectionRef.current) {
         const answer = new RTCSessionDescription(data.sdp);
         await peerConnectionRef.current.setRemoteDescription(answer);
@@ -161,7 +184,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     });
 
     socketService.on('ice-candidate', async (data: any) => {
-      console.log('Received ICE candidate');
+      devLog('Received ICE candidate');
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
       }

@@ -72,6 +72,11 @@ router.post('/login', async (req, res) => {
 
     // 查找用户
     const user = await User.findOne({ username });
+
+    // 使用固定延迟防止时间差攻击（无论用户是否存在都执行）
+    const FIXED_DELAY_MS = 50;
+    await new Promise(resolve => setTimeout(resolve, FIXED_DELAY_MS));
+
     if (!user) {
       return res.status(401).json({ error: '用户名或密码错误' });
     }

@@ -6,11 +6,11 @@ const authMiddleware = require('../middleware/auth');
 const { logError } = require('../middleware/logger');
 const { validateDeviceCode, validateConnectionPassword, validateObjectId, validatePagination } = require('../middleware/validator');
 
-// 建立连接
-router.post('/connect', async (req, res) => {
+// 建立连接（需要认证）
+router.post('/connect', authMiddleware, async (req, res) => {
   try {
     const { deviceCode, password } = req.body;
-    const userId = req.userId; // 可能为空，支持免登录连接
+    const userId = req.userId;
 
     // 输入验证
     const codeValidation = validateDeviceCode(deviceCode);
@@ -68,8 +68,8 @@ router.post('/connect', async (req, res) => {
   }
 });
 
-// 断开连接
-router.post('/disconnect', async (req, res) => {
+// 断开连接（需要认证）
+router.post('/disconnect', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
     const { connectionId } = req.body;
@@ -101,8 +101,8 @@ router.post('/disconnect', async (req, res) => {
   }
 });
 
-// 获取连接状态
-router.get('/status', async (req, res) => {
+// 获取连接状态（需要认证）
+router.get('/status', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
     const { connectionId } = req.query;

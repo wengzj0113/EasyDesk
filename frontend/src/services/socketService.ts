@@ -3,6 +3,22 @@ import { io, Socket } from 'socket.io-client';
 // Socket.IO 服务器地址
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3001';
 
+// 是否为开发环境
+const isDev = process.env.NODE_ENV === 'development';
+
+// 开发环境日志函数
+const devLog = (...args: unknown[]) => {
+  if (isDev) {
+    console.log('[Socket]', ...args);
+  }
+};
+
+const devError = (...args: unknown[]) => {
+  if (isDev) {
+    console.error('[Socket Error]', ...args);
+  }
+};
+
 // WebSocket 事件数据类型定义
 export interface RegisteredData {
   success: boolean;
@@ -185,67 +201,67 @@ class SocketService {
     if (!this.socket) return;
 
     this.socket.on('registered', (data: RegisteredData) => {
-      console.log('Registered:', data);
+      devLog('Registered:', data);
       this.onRegistered?.(data);
     });
 
     this.socket.on('connection-requested', (data: { targetDeviceCode: string }) => {
-      console.log('Connection requested:', data);
+      devLog('Connection requested:', data);
       this.onConnectionRequested?.(data);
     });
 
     this.socket.on('connection-accepted', (data: ConnectionAcceptedData) => {
-      console.log('Connection accepted:', data);
+      devLog('Connection accepted:', data);
       this.onConnectionAccepted?.(data);
     });
 
     this.socket.on('connection-rejected', (data: ConnectionRejectedData) => {
-      console.log('Connection rejected:', data);
+      devLog('Connection rejected:', data);
       this.onConnectionRejected?.(data);
     });
 
     this.socket.on('incoming-connection', (data: ConnectionRequestData) => {
-      console.log('Incoming connection:', data);
+      devLog('Incoming connection:', data);
       this.onIncomingConnection?.(data);
     });
 
     this.socket.on('sdp-offer', (data: SDPOfferData) => {
-      console.log('SDP Offer received');
+      devLog('SDP Offer received');
       this.onSDPOffer?.(data);
     });
 
     this.socket.on('sdp-answer', (data: SDPAnswerData) => {
-      console.log('SDP Answer received');
+      devLog('SDP Answer received');
       this.onSDPAnswer?.(data);
     });
 
     this.socket.on('ice-candidate', (data: ICECandidateData) => {
-      console.log('ICE Candidate received');
+      devLog('ICE Candidate received');
       this.onICECandidate?.(data);
     });
 
     this.socket.on('prepare-sdp', (data: PrepareSDPData) => {
-      console.log('Prepare SDP received');
+      devLog('Prepare SDP received');
       this.onPrepareSDP?.(data);
     });
 
     this.socket.on('control-command', (data: ControlCommandData) => {
-      console.log('Control command:', data);
+      devLog('Control command:', data);
       this.onControlCommand?.(data);
     });
 
     this.socket.on('device-online', (data: DeviceOnlineData) => {
-      console.log('Device online:', data);
+      devLog('Device online:', data);
       this.onDeviceOnline?.(data);
     });
 
     this.socket.on('device-offline', (data: DeviceOfflineData) => {
-      console.log('Device offline:', data);
+      devLog('Device offline:', data);
       this.onDeviceOffline?.(data);
     });
 
     this.socket.on('error', (data: ErrorData) => {
-      console.error('Socket error:', data);
+      devError('Socket error:', data);
       this.onError?.(data);
     });
 

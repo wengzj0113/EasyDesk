@@ -1,16 +1,26 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
 
-// 生成9位纯数字设备码
+// 生成9位纯数字设备码（使用加密安全的随机数）
 const generateDeviceCode = () => {
-  const digits = '0123456789';
+  // 使用 crypto.randomBytes 生成安全的随机数
+  const bytes = crypto.randomBytes(5); // 5字节 = 40位，足够生成9位数字
   let code = '';
   for (let i = 0; i < 9; i++) {
-    code += digits[Math.floor(Math.random() * digits.length)];
+    code += bytes[i % bytes.length].toString()[i % 10] || '0';
   }
-  // 确保不以0开头
-  if (code[0] === '0') code = '1' + code.substring(1);
-  return code;
+  // 确保生成9位数字，且不以0开头
+  code = code.split('').map((c, i) => {
+    if (i === 0) return c === '0' ? '1' : c;
+    return parseInt(c).toString();
+  }).join('');
+
+  // 如果不足9位，用随机数补足
+  while (code.length < 9) {
+    code += Math.floor(Math.random() * 10).toString();
+  }
+  return code.substring(0, 9);
 };
 
 const deviceSchema = new mongoose.Schema({
