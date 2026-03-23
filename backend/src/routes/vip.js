@@ -106,23 +106,60 @@ router.post('/callback', async (req, res) => {
       return res.status(403).json({ error: '签名验证失败' });
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
+    // 幂等性检查：验证订单是否已处理
+    const existingUser = await User.findById(userId);
+    if (!existingUser) {
       return res.status(404).json({ error: '用户不存在' });
+    }
+
+    const alreadyProcessed = existingUser.processedOrders?.some(
+      order => order.orderId === orderId
+    );
+
+    if (alreadyProcessed) {
+      logWarn('重复的支付回调', { orderId, userId });
+      return res.json({
+        message: '订单已处理',
+        vipStatus: existingUser.vipStatus,
+        vipExpireTime: existingUser.vipExpireTime
+      });
     }
 
     const duration = VIP_PLANS[plan]?.duration || VIP_PLANS['month'].duration;
 
     // 计算VIP过期时间
     const now = new Date();
-    const baseTime = user.vipExpireTime && user.vipExpireTime > now ? user.vipExpireTime : now;
+    const baseTime = existingUser.vipExpireTime && existingUser.vipExpireTime > now
+      ? existingUser.vipExpireTime
+      : now;
     const expireTime = new Date(baseTime.getTime() + duration * 24 * 60 * 60 * 1000);
 
-    user.vipStatus = true;
-    user.vipExpireTime = expireTime;
-    await user.save();
+    // 原子性更新：添加订单记录并更新VIP状态
+    const user = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          vipStatus: true,
+          vipExpireTime: expireTime
+        },
+        $addToSet: {
+          processedOrders: {
+            orderId,
+            plan,
+            processedAt: now
+          }
+        }
+      },
+      { new: true }
+    );
 
-    res.json({ message: 'VIP激活成功' });
+    logInfo('VIP激活成功', { orderId, userId, plan, expireTime });
+
+    res.json({
+      message: 'VIP激活成功',
+      vipStatus: user.vipStatus,
+      vipExpireTime: user.vipExpireTime
+    });
   } catch (error) {
     logError('处理支付回调失败', error);
     res.status(500).json({ error: '处理支付回调失败' });
@@ -139,25 +176,59 @@ router.post('/simulate-payment', authMiddleware, async (req, res) => {
       return res.status(400).json({ error: '无效的套餐' });
     }
 
-    const duration = VIP_PLANS[plan].duration;
+    // 生成测试订单号
+    const orderId = `VIP_${Date.now()}_${userId}`;
 
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ error: '用户不存在' });
     }
 
+    // 幂等性检查
+    const alreadyProcessed = user.processedOrders?.some(
+      order => order.orderId === orderId
+    );
+
+    if (alreadyProcessed) {
+      return res.json({
+        message: '订单已处理',
+        vipStatus: user.vipStatus,
+        vipExpireTime: user.vipExpireTime,
+        remainingDays: user.vipExpireTime
+          ? Math.max(0, Math.ceil((user.vipExpireTime - new Date()) / (1000 * 60 * 60 * 24)))
+          : 0
+      });
+    }
+
+    const duration = VIP_PLANS[plan].duration;
+
     const now = new Date();
     const baseTime = user.vipExpireTime && user.vipExpireTime > now ? user.vipExpireTime : now;
     const expireTime = new Date(baseTime.getTime() + duration * 24 * 60 * 60 * 1000);
 
-    user.vipStatus = true;
-    user.vipExpireTime = expireTime;
-    await user.save();
+    // 原子性更新
+    const updatedUser = await User.findByIdAndUpdate(
+      userId,
+      {
+        $set: {
+          vipStatus: true,
+          vipExpireTime: expireTime
+        },
+        $addToSet: {
+          processedOrders: {
+            orderId,
+            plan,
+            processedAt: now
+          }
+        }
+      },
+      { new: true }
+    );
 
     res.json({
       message: 'VIP激活成功',
-      vipStatus: true,
-      vipExpireTime: expireTime,
+      vipStatus: updatedUser.vipStatus,
+      vipExpireTime: updatedUser.vipExpireTime,
       remainingDays: duration
     });
   } catch (error) {

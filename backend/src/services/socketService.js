@@ -1,9 +1,19 @@
-
+const jwt = require('jsonwebtoken');
 const config = require('../config');
-const { logInfo, logWarn, logError, formatLog } = require('../middleware/logger');
+const Device = require('../models/Device');
+const { logInfo, logWarn, logError } = require('../middleware/logger');
 
 // 存储在线设备
-const onlineDevices = new Map(); // deviceCode -> { socketId, role, password, lastHeartbeat }
+const onlineDevices = new Map(); // deviceCode -> { socketId, role, userId, lastHeartbeat }
+
+// JWT 认证中间件（用于 WebSocket 连接验证）
+function verifyJwtToken(token) {
+  try {
+    return jwt.verify(token, config.jwt.secret);
+  } catch (error) {
+    return null;
+  }
+}
 
 // 心跳超时配置（毫秒）
 const HEARTBEAT_TIMEOUT = 60000; // 60秒无心跳认为离线
@@ -31,49 +41,160 @@ function buildIceServers() {
 // 检查设备心跳超时
 function checkHeartbeatTimeout(io) {
   const now = Date.now();
+  const toRemove = [];
 
   for (const [deviceCode, deviceInfo] of onlineDevices) {
     if (now - deviceInfo.lastHeartbeat > HEARTBEAT_TIMEOUT) {
-      logWarn(`设备心跳超时: ${deviceCode}`);
-      onlineDevices.delete(deviceCode);
-      io.emit('device-offline', { deviceCode, reason: 'timeout' });
+      toRemove.push(deviceCode);
     }
   }
+
+  // 统一删除，避免遍历中修改 Map
+  for (const deviceCode of toRemove) {
+    logWarn(`设备心跳超时: ${deviceCode}`);
+    onlineDevices.delete(deviceCode);
+    io.emit('device-offline', { deviceCode, reason: 'timeout' });
+  }
 }
+
+// 存储待验证的临时认证 token（一次性使用）
+const pendingAuth = new Map(); // deviceCode -> { userId, token, expiresAt }
+
+// 生成临时认证 token
+function generateTempToken(deviceCode, userId) {
+  const token = jwt.sign(
+    { deviceCode, userId, purpose: 'device_auth' },
+    config.jwt.secret,
+    { expiresIn: '5m' }
+  );
+  pendingAuth.set(deviceCode, {
+    userId,
+    token,
+    expiresAt: Date.now() + 5 * 60 * 1000
+  });
+  return token;
+}
+
+// 验证并消费临时 token
+function consumeTempToken(deviceCode, token) {
+  const pending = pendingAuth.get(deviceCode);
+  if (!pending) return null;
+
+  if (pending.token !== token || Date.now() > pending.expiresAt) {
+    pendingAuth.delete(deviceCode);
+    return null;
+  }
+
+  const userId = pending.userId;
+  pendingAuth.delete(deviceCode);
+  return userId;
+}
+
+// 清理过期的 pendingAuth
+setInterval(() => {
+  const now = Date.now();
+  for (const [deviceCode, data] of pendingAuth) {
+    if (now > data.expiresAt) {
+      pendingAuth.delete(deviceCode);
+    }
+  }
+}, 60000);
 
 function initializeSocketIO(io) {
   io.on('connection', (socket) => {
     logInfo('新的 WebSocket 连接', { socketId: socket.id });
 
-    // 设备注册/上线
+    // 临时存储用户信息
+    socket.userId = null;
+    socket.deviceCode = null;
+
+    // 步骤1: 请求设备认证 token（需要 JWT）
+    socket.on('request-auth', async (data) => {
+      const { userId, deviceCode, password } = data;
+
+      if (!userId || !deviceCode) {
+        socket.emit('error', { message: '缺少必要参数' });
+        return;
+      }
+
+      try {
+        // 查找设备并验证所有权
+        const device = await Device.findOne({ deviceCode });
+
+        if (!device) {
+          socket.emit('error', { message: '设备不存在' });
+          return;
+        }
+
+        // 验证设备是否属于当前用户
+        if (device.userId && device.userId.toString() !== userId) {
+          socket.emit('error', { message: '设备不属于当前用户' });
+          return;
+        }
+
+        // 如果设备已设置密码，验证密码
+        if (device.accessPassword) {
+          const isMatch = await device.compareAccessPassword(password || '');
+          if (!isMatch) {
+            socket.emit('error', { message: '密码错误' });
+            return;
+          }
+        }
+
+        // 生成临时认证 token
+        const tempToken = generateTempToken(deviceCode, userId);
+
+        socket.emit('auth-token', {
+          tempToken,
+          deviceCode,
+          expiresIn: 300 // 5分钟
+        });
+      } catch (error) {
+        logError('设备认证失败', error);
+        socket.emit('error', { message: '认证失败' });
+      }
+    });
+
+    // 步骤2: 使用临时 token 完成设备注册
     socket.on('register', (data) => {
-      const { deviceCode, password, role } = data;
+      const { deviceCode, tempToken } = data;
 
       if (!deviceCode || typeof deviceCode !== 'string' || deviceCode.length !== 9) {
         socket.emit('error', { message: '设备码格式不正确' });
         return;
       }
 
-      // 验证密码（如果有）
-      const existingDevice = onlineDevices.get(deviceCode);
-      if (existingDevice && existingDevice.password !== password) {
-        socket.emit('error', { message: '密码错误' });
+      // 验证临时 token
+      const userId = consumeTempToken(deviceCode, tempToken);
+      if (!userId) {
+        socket.emit('error', { message: '认证已过期，请重新认证' });
         return;
+      }
+
+      // 检查设备是否已被其他连接注册
+      const existingDevice = onlineDevices.get(deviceCode);
+      if (existingDevice) {
+        // 如果是同一用户，可以复用；否则拒绝
+        if (existingDevice.userId !== userId) {
+          socket.emit('error', { message: '设备已被其他用户连接' });
+          return;
+        }
       }
 
       // 保存设备信息
       const deviceInfo = {
         socketId: socket.id,
-        password: password,
-        role: role || 'controlled', // controlled(被控) 或 controller(控制端)
+        userId,
+        role: 'controlled', // controlled(被控) 或 controller(控制端)
         deviceCode,
         lastHeartbeat: Date.now()
       };
 
       onlineDevices.set(deviceCode, deviceInfo);
+      socket.userId = userId;
       socket.deviceCode = deviceCode;
 
-      logInfo('设备注册成功', { deviceCode, role: role || 'controlled' });
+      logInfo('设备注册成功', { deviceCode, userId });
 
       // 通知设备注册成功
       socket.emit('registered', { success: true, deviceCode });
@@ -83,11 +204,16 @@ function initializeSocketIO(io) {
     });
 
     // 请求连接远程设备
-    socket.on('request-connect', (data) => {
-      const { targetDeviceCode, password } = data;
+    socket.on('request-connect', async (data) => {
+      const { targetDeviceCode, password, userId } = data;
 
-      if (!targetDeviceCode || !password) {
-        socket.emit('connect-failed', { error: '设备码和密码不能为空' });
+      if (!socket.userId) {
+        socket.emit('connect-failed', { error: '未认证，请先完成设备认证' });
+        return;
+      }
+
+      if (!targetDeviceCode) {
+        socket.emit('connect-failed', { error: '设备码不能为空' });
         return;
       }
 
@@ -98,15 +224,39 @@ function initializeSocketIO(io) {
         return;
       }
 
-      logInfo('收到连接请求', { from: socket.deviceCode, to: targetDeviceCode });
+      // 检查是否是同一用户
+      if (target.userId === socket.userId) {
+        socket.emit('connect-failed', { error: '不能连接自己的设备' });
+        return;
+      }
 
-      // 向目标设备发送连接请求
-      io.to(target.socketId).emit('incoming-connection', {
-        fromDeviceCode: socket.deviceCode,
-        password
-      });
+      try {
+        // 验证访问密码
+        const device = await Device.findOne({ deviceCode: targetDeviceCode });
+        if (!device) {
+          socket.emit('connect-failed', { error: '设备不存在' });
+          return;
+        }
 
-      socket.emit('connection-requested', { targetDeviceCode });
+        const isMatch = await device.compareAccessPassword(password || '');
+        if (!isMatch) {
+          socket.emit('connect-failed', { error: '访问密码错误' });
+          return;
+        }
+
+        logInfo('收到连接请求', { from: socket.deviceCode, to: targetDeviceCode });
+
+        // 向目标设备发送连接请求
+        io.to(target.socketId).emit('incoming-connection', {
+          fromDeviceCode: socket.deviceCode,
+          fromUserId: socket.userId
+        });
+
+        socket.emit('connection-requested', { targetDeviceCode });
+      } catch (error) {
+        logError('验证访问密码失败', error);
+        socket.emit('connect-failed', { error: '验证失败' });
+      }
     });
 
     // 目标设备接受连接
@@ -214,7 +364,7 @@ function initializeSocketIO(io) {
       }
     });
 
-    // 获取在线设备列表
+    // 获取在线设备列表（只暴露设备码，不暴露用户信息）
     socket.on('get-online-devices', () => {
       const devices = [];
       for (const [code, info] of onlineDevices) {
@@ -228,10 +378,12 @@ function initializeSocketIO(io) {
 
     // 心跳保活
     socket.on('heartbeat', () => {
-      const deviceInfo = onlineDevices.get(socket.deviceCode);
-      if (deviceInfo) {
-        deviceInfo.lastHeartbeat = Date.now();
-        socket.emit('heartbeat-ack');
+      if (socket.deviceCode) {
+        const deviceInfo = onlineDevices.get(socket.deviceCode);
+        if (deviceInfo) {
+          deviceInfo.lastHeartbeat = Date.now();
+          socket.emit('heartbeat-ack');
+        }
       }
     });
 
@@ -265,4 +417,4 @@ function initializeSocketIO(io) {
   return io;
 }
 
-module.exports = { initializeSocketIO };
+module.exports = { initializeSocketIO, generateTempToken };

@@ -30,6 +30,12 @@ const userSchema = new mongoose.Schema({
     type: Date,
     default: null
   },
+  // 已处理的订单记录（用于支付回调幂等性）
+  processedOrders: [{
+    orderId: { type: String, required: true },
+    plan: { type: String },
+    processedAt: { type: Date, default: Date.now }
+  }],
   settings: {
     videoQuality: { type: String, default: '720p' },
     frameRate: { type: Number, default: 30 },
