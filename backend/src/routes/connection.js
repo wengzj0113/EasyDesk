@@ -30,7 +30,8 @@ router.post('/connect', async (req, res) => {
     }
 
     // 验证密码
-    if (targetDevice.accessPassword !== password) {
+    const isPasswordValid = await targetDevice.compareAccessPassword(password);
+    if (!isPasswordValid) {
       return res.status(401).json({ error: '密码错误' });
     }
 

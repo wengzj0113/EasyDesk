@@ -155,7 +155,7 @@ const ConnectionPage: React.FC = () => {
               items={[
                 { title: '发起请求', icon: <LoadingOutlined /> },
                 { title: '等待确认' },
-                { title: '连接成功', icon: connectionStatus === 'connected' ? <CheckCircleOutlined /> : undefined }
+                { title: '连接成功', icon: <CheckCircleOutlined /> }
               ]}
             />
           )}

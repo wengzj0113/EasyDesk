@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const crypto = require('crypto');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth');
 const { logError } = require('../middleware/logger');
@@ -83,6 +84,18 @@ router.post('/callback', async (req, res) => {
 
     if (status !== 'success') {
       return res.json({ message: '支付失败' });
+    }
+
+    // 验证支付签名（防止伪造回调）
+    const signature = req.headers['x-payment-signature'];
+    const expectedSignature = crypto
+      .createHmac('sha256', process.env.PAYMENT_SECRET || 'default-secret-key')
+      .update(JSON.stringify({ orderId, status, userId, plan }))
+      .digest('hex');
+
+    if (!signature || signature !== expectedSignature) {
+      logError('支付回调签名验证失败', { orderId, userId });
+      return res.status(403).json({ error: '签名验证失败' });
     }
 
     const user = await User.findById(userId);

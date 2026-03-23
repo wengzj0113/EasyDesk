@@ -23,7 +23,7 @@ const api = axios.create({
   },
 });
 
-// 请求拦截器：从 zustand store 读取 token（与 persist 存储保持一致）
+// 请求拦截器：从 zustand store 读取 token
 api.interceptors.request.use(
   (config) => {
     const token = useStore.getState().token;
@@ -75,29 +75,36 @@ api.interceptors.response.use(
   }
 );
 
+// 定义带类型的API调用函数
+const createApiCall = <T>(method: 'get' | 'post' | 'delete', url: string, data?: any) => {
+  return (params?: any): Promise<T> => {
+    if (method === 'get') {
+      return api.get(url, { params });
+    } else if (method === 'post') {
+      return api.post(url, data || params);
+    } else {
+      return api.delete(url);
+    }
+  };
+};
+
 export const authAPI = {
-  login: (data: { username: string; password: string }) =>
-    api.post('/auth/login', data),
-  register: (data: { username: string; password: string; email: string }) =>
-    api.post('/auth/register', data),
+  login: (data: { username: string; password: string }) => api.post('/auth/login', data),
+  register: (data: { username: string; password: string; email: string }) => api.post('/auth/register', data),
   logout: () => api.post('/auth/logout'),
 };
 
 export const deviceAPI = {
   getDeviceCode: () => api.get('/device/code'),
-  updatePassword: (data: { newPassword: string }) =>
-    api.post('/device/password', data),
+  updatePassword: (data: { newPassword: string }) => api.post('/device/password', data),
   getMyDevices: () => api.get('/device/my-devices'),
-  bindDevice: (data: { deviceCode: string; deviceName: string }) =>
-    api.post('/device/bind', data),
+  bindDevice: (data: { deviceCode: string; deviceName: string }) => api.post('/device/bind', data),
   unbindDevice: (deviceId: string) => api.delete(`/device/${deviceId}`),
 };
 
 export const connectionAPI = {
-  connect: (data: { deviceCode: string; password: string }) =>
-    api.post('/connection/connect', data),
-  disconnect: (data?: { connectionId?: string }) =>
-    api.post('/connection/disconnect', data || {}),
+  connect: (data: { deviceCode: string; password: string }) => api.post('/connection/connect', data),
+  disconnect: (data?: { connectionId?: string }) => api.post('/connection/disconnect', data || {}),
   getConnectionStatus: () => api.get('/connection/status'),
   getHistory: (params?: { page?: number; pageSize?: number; startDate?: string; endDate?: string }) =>
     api.get('/connection/history', { params }),

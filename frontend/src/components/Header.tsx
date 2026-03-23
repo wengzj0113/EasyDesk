@@ -19,11 +19,9 @@ const AppHeader: React.FC = () => {
   const handleLogin = async (values: { username: string; password: string }) => {
     setLoading(true);
     try {
-      const res = await authAPI.login(values);
+      const res: any = await authAPI.login(values);
       setToken(res.token);
       setUser(res.user);
-      // 同时存储到localStorage供API拦截器使用
-      localStorage.setItem('token', res.token);
       message.success('登录成功');
       setLoginModalVisible(false);
       loginForm.resetFields();
@@ -37,11 +35,9 @@ const AppHeader: React.FC = () => {
   const handleRegister = async (values: { username: string; password: string; email: string }) => {
     setLoading(true);
     try {
-      const res = await authAPI.register(values);
+      const res: any = await authAPI.register(values);
       setToken(res.token);
       setUser(res.user);
-      // 同时存储到localStorage供API拦截器使用
-      localStorage.setItem('token', res.token);
       message.success('注册成功');
       setRegisterModalVisible(false);
       registerForm.resetFields();
@@ -54,7 +50,6 @@ const AppHeader: React.FC = () => {
 
   const handleLogout = () => {
     clearUser();
-    localStorage.removeItem('token');
     message.success('已退出登录');
     navigate('/');
   };
@@ -66,34 +61,32 @@ const AppHeader: React.FC = () => {
         label: '我的设备',
         icon: <UserOutlined />,
         onClick: () => navigate('/devices'),
-      },
+      } as const,
       {
         key: 'history',
         label: '连接历史',
         icon: <HistoryOutlined />,
         onClick: () => navigate('/history'),
-      },
+      } as const,
       {
         key: 'vip',
         label: 'VIP服务',
         icon: <CrownOutlined />,
         onClick: () => navigate('/vip'),
-      },
+      } as const,
       {
         key: 'settings',
         label: '设置',
         icon: <SettingOutlined />,
         onClick: () => navigate('/settings'),
-      },
-      {
-        type: 'divider',
-      },
+      } as const,
+      { type: 'divider' as const },
       {
         key: 'logout',
         label: '退出登录',
         icon: <LogoutOutlined />,
         onClick: handleLogout,
-      },
+      } as const,
     ],
   };
 

@@ -100,6 +100,33 @@ class SocketService {
   private onDeviceOffline: ((data: DeviceOfflineData) => void) | null = null;
   private onError: ((data: ErrorData) => void) | null = null;
 
+  // 断开连接
+  disconnect() {
+    this.stopHeartbeat();
+    this.off(); // 清理所有事件回调
+    if (this.socket) {
+      this.socket.disconnect();
+      this.socket = null;
+    }
+  }
+
+  // 清理所有事件回调
+  off() {
+    this.onRegistered = null;
+    this.onConnectionRequested = null;
+    this.onConnectionAccepted = null;
+    this.onConnectionRejected = null;
+    this.onIncomingConnection = null;
+    this.onSDPOffer = null;
+    this.onSDPAnswer = null;
+    this.onICECandidate = null;
+    this.onPrepareSDP = null;
+    this.onControlCommand = null;
+    this.onDeviceOnline = null;
+    this.onDeviceOffline = null;
+    this.onError = null;
+  }
+
   // 连接服务器
   connect() {
     if (this.socket?.connected) {
@@ -117,17 +144,25 @@ class SocketService {
     this.startHeartbeat();
   }
 
-  // 断开连接
-  disconnect() {
-    this.stopHeartbeat();
-    if (this.socket) {
-      this.socket.disconnect();
-      this.socket = null;
-    }
-  }
+  // 事件类型映射
+  private eventTypeMap: Record<SocketEventType, unknown> = {
+    'registered': null as unknown as RegisteredData,
+    'connection-requested': null as unknown as { targetDeviceCode: string },
+    'connection-accepted': null as unknown as ConnectionAcceptedData,
+    'connection-rejected': null as unknown as ConnectionRejectedData,
+    'incoming-connection': null as unknown as ConnectionRequestData,
+    'sdp-offer': null as unknown as SDPOfferData,
+    'sdp-answer': null as unknown as SDPAnswerData,
+    'ice-candidate': null as unknown as ICECandidateData,
+    'prepare-sdp': null as unknown as PrepareSDPData,
+    'control-command': null as unknown as ControlCommandData,
+    'device-online': null as unknown as DeviceOnlineData,
+    'device-offline': null as unknown as DeviceOfflineData,
+    'error': null as unknown as ErrorData,
+  };
 
-  // 设置事件回调
-  on(event: SocketEventType, callback: (data: unknown) => void) {
+  // 设置事件回调 - 使用泛型确保类型安全
+  on<T extends SocketEventType>(event: T, callback: (data: typeof this.eventTypeMap[T]) => void) {
     switch (event) {
       case 'registered': this.onRegistered = callback as (data: RegisteredData) => void; break;
       case 'connection-requested': this.onConnectionRequested = callback as (data: { targetDeviceCode: string }) => void; break;

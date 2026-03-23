@@ -57,7 +57,7 @@ const VIPIPage: React.FC = () => {
   const fetchVipStatus = async () => {
     setVipLoading(true);
     try {
-      const res = await vipAPI.getVIPStatus();
+      const res: any = await vipAPI.getVIPStatus();
       setVipStatus(res);
     } catch (error) {
       // 未登录时不显示错误
@@ -84,7 +84,7 @@ const VIPIPage: React.FC = () => {
       await vipAPI.createPayment({ plan: selectedPlan.key });
 
       // 模拟支付成功（测试用）
-      const res = await (vipAPI as any).simulatePayment?.({ plan: selectedPlan.key })
+      const res: any = await (vipAPI as any).simulatePayment?.({ plan: selectedPlan.key })
         .catch(() => null);
 
       message.success('VIP购买成功！');

@@ -92,7 +92,7 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
     setLoading(true);
     try {
       const result = await window.electronAPI.readDirectory(path);
-      if (result.success) {
+      if (result.success && result.items) {
         setFiles(result.items);
         setCurrentPath(path);
         setSelectedRowKeys([]);
@@ -461,7 +461,7 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
               rowKey="path"
               rowSelection={{
                 selectedRowKeys,
-                onChange: setSelectedRowKeys
+                onChange: (keys) => setSelectedRowKeys(keys as string[])
               }}
               onRow={(record) => ({
                 onDoubleClick: () => handleDoubleClick(record)
@@ -532,7 +532,7 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
             uid: String(i),
             name: f.name,
             size: f.size,
-            status: 'ready'
+            status: 'uploading' as const
           }))}
           onRemove={(file) => {
             setUploadFileList(prev => prev.filter(f => f.name !== file.name));

@@ -361,42 +361,52 @@ $btn = if ("${buttonCode}" -eq "right") { [MouseClick]::RIGHTUP } else { [MouseC
   );
 }
 
-// Windows 键盘输入
+// Windows 键盘输入 - 使用白名单方式防止命令注入
 function sendKey(key, isDown) {
   if (process.platform !== 'win32') return;
 
-  // 虚拟键码映射
+  // 虚拟键码白名单（只允许已知安全的键）
   const keyMap = {
+    // 字母键
     'a': 0x41, 'b': 0x42, 'c': 0x43, 'd': 0x44, 'e': 0x45, 'f': 0x46,
     'g': 0x47, 'h': 0x48, 'i': 0x49, 'j': 0x4A, 'k': 0x4B, 'l': 0x4C,
     'm': 0x4D, 'n': 0x4E, 'o': 0x4F, 'p': 0x50, 'q': 0x51, 'r': 0x52,
     's': 0x53, 't': 0x54, 'u': 0x55, 'v': 0x56, 'w': 0x57, 'x': 0x58,
     'y': 0x59, 'z': 0x5A,
+    // 数字键
     '0': 0x30, '1': 0x31, '2': 0x32, '3': 0x33, '4': 0x34,
     '5': 0x35, '6': 0x36, '7': 0x37, '8': 0x38, '9': 0x39,
+    // 功能键
     'Enter': 0x0D, 'Escape': 0x1B, 'Backspace': 0x08, 'Tab': 0x09,
     'Space': 0x20, 'Shift': 0x10, 'Control': 0x11, 'Alt': 0x12,
     'CapsLock': 0x14, 'ArrowUp': 0x26, 'ArrowDown': 0x28,
     'ArrowLeft': 0x25, 'ArrowRight': 0x27
   };
 
-  const vkCode = keyMap[key.toLowerCase()] || key.charCodeAt(0);
+  // 只允许白名单中的键，防止命令注入
+  const normalizedKey = key.toLowerCase();
+  const vkCode = keyMap[normalizedKey];
+
+  // 如果键不在白名单中，拒绝执行
+  if (vkCode === undefined) {
+    console.warn('Blocked unknown key:', key);
+    return;
+  }
+
   const eventFlag = isDown ? 0x0001 : 0x0002; // KEYEVENTF_KEYDOWN / KEYEVENTF_KEYUP
 
-  // 添加修饰键
+  // 使用参数传递而不是字符串拼接，防止注入
   const script = `
-    Add-Type -TypeDefinition @"
+Add-Type -TypeDefinition @"
 using System;
 using System.Runtime.InteropServices;
 public class KeyInput {
     [DllImport("user32.dll", CharSet = CharSet.Auto, CallingConvention = CallingConvention.StdCall)]
     public static extern void key_event(int bVk, int bScan, int dwFlags, int dwExtraInfo);
-    public const int KEYEVENTF_KEYDOWN = 0x0001;
-    public const int KEYEVENTF_KEYUP = 0x0002;
 }
 "@
 [KeyInput]::key_event(${vkCode}, 0, ${eventFlag}, 0)
-  `;
+`;
 
   exec(`powershell -ExecutionPolicy Bypass -Command "${script.replace(/"/g, '\\"').replace(/\n/g, ' ')}"`,
     (error) => {

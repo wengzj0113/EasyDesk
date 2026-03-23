@@ -46,10 +46,10 @@ const DeviceManagementPage: React.FC = () => {
   const fetchMyDevice = async () => {
     setLoading(true);
     try {
-      const res = await deviceAPI.getDeviceCode();
+      const res: any = await deviceAPI.getDeviceCode();
       setMyDevice(res);
       // 获取绑定设备列表
-      const boundRes = await deviceAPI.getMyDevices();
+      const boundRes: any = await deviceAPI.getMyDevices();
       setDevices(boundRes.devices || []);
     } catch (error: any) {
       message.error(error.response?.data?.error || '获取设备信息失败');

@@ -45,8 +45,8 @@ app.use(cors());
 app.use(requestLogger); // 添加请求日志
 app.use(securityHeaders); // 安全响应头
 app.use(sanitizeRequest); // XSS 防护
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+app.use(express.json({ limit: '100kb' }));
+app.use(express.urlencoded({ extended: true, limit: '100kb' }));
 app.use(generalLimiter);
 
 // 静态文件

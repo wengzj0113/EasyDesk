@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography, Switch } from 'antd';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
+import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography, Switch } from 'antd';
 import {
   FullscreenOutlined,
   FullscreenExitOutlined,
@@ -110,12 +111,12 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       }
     });
 
-    socketService.on('incoming-connection', (data) => {
+    socketService.on('incoming-connection', (data: any) => {
       console.log('Incoming connection request:', data);
       setIncomingRequest(data);
     });
 
-    socketService.on('connection-accepted', async (data) => {
+    socketService.on('connection-accepted', async (data: any) => {
       console.log('Connection accepted, preparing WebRTC...', data);
       // 保存服务器下发的 ICE 配置（含 TURN）
       if (data.iceServers) {
@@ -131,7 +132,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       }
     });
 
-    socketService.on('prepare-sdp', (data) => {
+    socketService.on('prepare-sdp', (data: any) => {
       console.log('Prepare SDP, ICE config received');
       // 被控端保存服务器下发的 ICE 配置
       if (data.iceServers) {
@@ -139,19 +140,19 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       }
     });
 
-    socketService.on('connection-rejected', (data) => {
+    socketService.on('connection-rejected', (data: any) => {
       message.error('连接被拒绝: ' + data.reason);
       setConnecting(false);
     });
 
-    socketService.on('sdp-offer', async (data) => {
+    socketService.on('sdp-offer', async (data: any) => {
       console.log('Received SDP offer from:', data.fromDeviceCode);
       if (role === 'controlled') {
         await handleSDPOffer(data.sdp, data.fromDeviceCode);
       }
     });
 
-    socketService.on('sdp-answer', async (data) => {
+    socketService.on('sdp-answer', async (data: any) => {
       console.log('Received SDP answer');
       if (peerConnectionRef.current) {
         const answer = new RTCSessionDescription(data.sdp);
@@ -159,33 +160,34 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       }
     });
 
-    socketService.on('ice-candidate', async (data) => {
+    socketService.on('ice-candidate', async (data: any) => {
       console.log('Received ICE candidate');
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
       }
     });
 
-    socketService.on('control-command', (data) => {
+    socketService.on('control-command', (data: any) => {
       // 被控端收到控制指令
       handleControlCommand(data);
     });
 
-    socketService.on('error', (data) => {
+    socketService.on('error', (data: any) => {
       message.error('错误: ' + data.message);
       setError(data.message);
     });
 
     // 注册设备
-    setTimeout(() => {
+    const registerTimer = setTimeout(() => {
       socketService.register(deviceCode, password, role);
     }, 1000);
 
     return () => {
+      clearTimeout(registerTimer);
       socketService.disconnect();
       cleanup();
     };
-  }, []);
+  }, [role, targetDeviceCode, password, deviceCode]);
 
   // 如果是被控端，等待连接请求
   useEffect(() => {
@@ -377,10 +379,11 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       let stream: MediaStream;
 
       if (window.electronAPI && selectedSource) {
-        // Electron 环境
+        // Electron 环境 - 使用 Electron 特有的 desktop 捕获 API
         stream = await navigator.mediaDevices.getUserMedia({
           audio: audioEnabled,
           video: {
+            // @ts-ignore - Chrome/Electron 特有扩展
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: selectedSource,
@@ -390,7 +393,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
               maxHeight: 1080
             }
           }
-        });
+        } as any);
       } else {
         // 浏览器环境
         stream = await navigator.mediaDevices.getDisplayMedia({

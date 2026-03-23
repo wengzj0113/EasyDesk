@@ -53,21 +53,32 @@ router.get('/code', authMiddleware, async (req, res) => {
 
     if (!device) {
       const deviceCode = await generateDeviceCode();
+      const plainPassword = generatePassword();
       device = new Device({
         userId,
         deviceCode,
         platform: req.headers['user-agent']?.includes('Windows') ? 'windows' : 'mac',
-        accessPassword: generatePassword()
+        accessPassword: plainPassword
       });
       await device.save();
+
+      // 首次创建时返回密码（之后不再返回）
+      res.json({
+        deviceCode: device.deviceCode,
+        deviceName: device.deviceName,
+        isOnline: device.isOnline,
+        accessPassword: plainPassword,
+        isNew: true
+      });
+      return;
     }
 
+    // 不再返回密码以防泄露
     res.json({
       deviceCode: device.deviceCode,
       deviceName: device.deviceName,
       isOnline: device.isOnline,
-      accessPassword: device.accessPassword,
-      permanentPassword: device.permanentPassword || null
+      isNew: false
     });
   } catch (error) {
     logError('获取设备码失败', error);

@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const bcrypt = require('bcryptjs');
 
 // 生成9位纯数字设备码
 const generateDeviceCode = () => {
@@ -28,11 +29,12 @@ const deviceSchema = new mongoose.Schema({
     type: String,
     default: '我的设备'
   },
+  // 访问密码（加密存储）
   accessPassword: {
     type: String,
     required: true
   },
-  // 长期密码（绑定设备后使用）
+  // 长期密码（绑定设备后使用，加密存储）
   permanentPassword: {
     type: String,
     default: null
@@ -70,11 +72,33 @@ const deviceSchema = new mongoose.Schema({
   }
 });
 
-// 更新时间中间件
-deviceSchema.pre('save', function(next) {
+// 密码加密中间件
+deviceSchema.pre('save', async function(next) {
   this.updatedAt = Date.now();
+
+  // 密码加密
+  if (this.isModified('accessPassword')) {
+    const salt = await bcrypt.genSalt(10);
+    this.accessPassword = await bcrypt.hash(this.accessPassword, salt);
+  }
+  if (this.isModified('permanentPassword') && this.permanentPassword) {
+    const salt = await bcrypt.genSalt(10);
+    this.permanentPassword = await bcrypt.hash(this.permanentPassword, salt);
+  }
+
   next();
 });
+
+// 密码比较方法
+deviceSchema.methods.compareAccessPassword = async function(candidatePassword) {
+  return bcrypt.compare(candidatePassword, this.accessPassword);
+};
+
+// 永久密码比较方法
+deviceSchema.methods.comparePermanentPassword = async function(candidatePassword) {
+  if (!this.permanentPassword) return false;
+  return bcrypt.compare(candidatePassword, this.permanentPassword);
+};
 
 // 索引
 deviceSchema.index({ deviceCode: 1 });
