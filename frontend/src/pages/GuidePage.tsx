@@ -3,7 +3,7 @@ import { Card, Typography, Button, Steps, Row, Col, List, Alert } from 'antd';
 import { ArrowLeftOutlined, DesktopOutlined, UserOutlined, CrownOutlined, LockOutlined, CheckCircleOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
-const { Title, Text, Paragraph } = Typography;
+const { Title, Text } = Typography;
 
 const GuidePage: React.FC = () => {
   const navigate = useNavigate();

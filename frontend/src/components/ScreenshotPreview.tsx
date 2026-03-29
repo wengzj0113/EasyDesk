@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Modal, Button, Space, message, InputNumber, Select, Slider, Image, Spin } from 'antd';
+import { Modal, Button, Space, message, Slider, Image, Spin } from 'antd';
 import {
   CameraOutlined,
   DownloadOutlined,

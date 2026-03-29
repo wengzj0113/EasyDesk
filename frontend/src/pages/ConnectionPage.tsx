@@ -6,7 +6,7 @@ import { useStore } from '../store/useStore';
 import { getSessionDeviceCode, getSessionPassword } from '../utils/deviceCode';
 import RemoteDesktop from '../components/RemoteDesktop';
 
-const { Title, Text } = Typography;
+const { Title } = Typography;
 const { Content } = Layout;
 
 const ConnectionPage: React.FC = () => {
@@ -33,7 +33,7 @@ const ConnectionPage: React.FC = () => {
         password: locationState.password || '',
       });
     }
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const onFinish = async (values: { deviceCode: string; password: string }) => {
     setLoading(true);

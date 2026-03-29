@@ -5,8 +5,6 @@ import {
   FullscreenExitOutlined,
   PhoneOutlined,
   DesktopOutlined,
-  CheckCircleOutlined,
-  LoadingOutlined,
   FolderOpenOutlined,
   FileSearchOutlined,
   CameraOutlined,
@@ -43,6 +41,7 @@ const CONFIG = {
     MAX_HEIGHT: 1080,
   },
 };
+void CONFIG;
 
 interface RemoteDesktopProps {
   connectionId: string;
@@ -210,7 +209,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       socketService.disconnect();
       cleanup();
     };
-  }, [role, targetDeviceCode, password, deviceCode]);
+  }, [role, targetDeviceCode, password, deviceCode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 如果是被控端，等待连接请求
   useEffect(() => {

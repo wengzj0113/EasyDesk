@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Modal, Button, Space, message, Tabs, List, Input } from 'antd';
+import { Modal, Button, Space, message, Tabs, List } from 'antd';
 import {
   CopyOutlined,
   ScissorOutlined,
@@ -20,7 +20,7 @@ const ClipboardSync: React.FC<ClipboardSyncProps> = ({
   dataChannel,
   isElectron
 }) => {
-  const [clipboardHistory, setClipboardHistory] = useState<string[]>([]);
+  const [clipboardHistory] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('sync');
 
   const isChannelReady = dataChannel?.readyState === 'open';

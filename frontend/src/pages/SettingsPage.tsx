@@ -40,7 +40,7 @@ const SettingsPage: React.FC = () => {
   const { user, clearUser } = useStore();
 
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
-  const [loading, setLoading] = useState(false);
+  const [, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   // 加载设置

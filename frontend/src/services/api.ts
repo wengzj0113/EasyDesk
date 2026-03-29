@@ -75,19 +75,6 @@ api.interceptors.response.use(
   }
 );
 
-// 定义带类型的API调用函数
-const createApiCall = <T>(method: 'get' | 'post' | 'delete', url: string, data?: any) => {
-  return (params?: any): Promise<T> => {
-    if (method === 'get') {
-      return api.get(url, { params });
-    } else if (method === 'post') {
-      return api.post(url, data || params);
-    } else {
-      return api.delete(url);
-    }
-  };
-};
-
 export const authAPI = {
   login: (data: { username: string; password: string }) => api.post('/auth/login', data),
   register: (data: { username: string; password: string; email: string }) => api.post('/auth/register', data),

@@ -15,7 +15,6 @@ import {
 } from 'antd';
 import {
   FolderOutlined,
-  FileOutlined,
   FilePdfOutlined,
   FileImageOutlined,
   FileExcelOutlined,
@@ -35,8 +34,8 @@ import {
 // ========== 常量配置 ==========
 const CONFIG = {
   FILE_LIST_HEIGHT: 400,
-  // 其他常量可以继续添加
 };
+void CONFIG;
 
 interface FileItem {
   name: string;
@@ -71,8 +70,6 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
   const [newFolderName, setNewFolderName] = useState('');
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [uploadFileList, setUploadFileList] = useState<File[]>([]);
-
-  const CHUNK_SIZE = 32 * 1024;
 
   // 初始化加载磁盘列表
   useEffect(() => {
@@ -152,7 +149,6 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
     if (selectedRowKeys.length === 0) return;
 
     const selectedFiles = files.filter(f => selectedRowKeys.includes(f.path));
-    const isDirectory = selectedFiles.some(f => f.isDirectory);
 
     AntModal.confirm({
       title: '确认删除',
@@ -377,8 +373,6 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
     }
   ];
 
-  const isChannelReady = dataChannel?.readyState === 'open';
-
   // 切换驱动器
   const handleDriveChange = (path: string) => {
     setCurrentPath(path);
@@ -450,7 +444,7 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
           {/* 路径导航 */}
           <Breadcrumb style={{ marginBottom: 16 }}>
             <Breadcrumb.Item>
-              <a onClick={() => currentPath && setCurrentPath('')}>
+              <a href="#/" onClick={() => currentPath && setCurrentPath('')}>
                 <HomeOutlined /> 根目录
               </a>
             </Breadcrumb.Item>

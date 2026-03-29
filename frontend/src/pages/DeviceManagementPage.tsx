@@ -3,7 +3,6 @@ import { Card, Typography, Button, Table, Tag, Modal, Form, Input, Space, Popcon
 import { ArrowLeftOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, QrcodeOutlined, ReloadOutlined, LinkOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { deviceAPI } from '../services/api';
-import { useStore } from '../store/useStore';
 
 const { Title, Text } = Typography;
 
@@ -29,9 +28,7 @@ interface Device {
 
 const DeviceManagementPage: React.FC = () => {
   const navigate = useNavigate();
-  const { user } = useStore();
   const [loading, setLoading] = useState(true);
-  const [devices, setDevices] = useState<Device[]>([]);
   const [myDevice, setMyDevice] = useState<Device | null>(null);
   const [bindModalVisible, setBindModalVisible] = useState(false);
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
@@ -48,9 +45,6 @@ const DeviceManagementPage: React.FC = () => {
     try {
       const res: any = await deviceAPI.getDeviceCode();
       setMyDevice(res);
-      // 获取绑定设备列表
-      const boundRes: any = await deviceAPI.getMyDevices();
-      setDevices(boundRes.devices || []);
     } catch (error: any) {
       message.error(error.response?.data?.error || '获取设备信息失败');
     } finally {

@@ -4,7 +4,6 @@ import { ArrowLeftOutlined, ReloadOutlined, DesktopOutlined, HistoryOutlined } f
 import { useNavigate } from 'react-router-dom';
 import { connectionAPI } from '../services/api';
 import type { RangePickerProps } from 'antd/es/date-picker';
-import type { Dayjs } from 'dayjs';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
