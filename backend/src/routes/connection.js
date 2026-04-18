@@ -3,11 +3,12 @@ const router = express.Router();
 const Connection = require('../models/Connection');
 const Device = require('../models/Device');
 const authMiddleware = require('../middleware/auth');
+const { optionalAuthMiddleware } = require('../middleware/auth');
 const { logError } = require('../middleware/logger');
 const { validateDeviceCode, validateConnectionPassword, validateObjectId, validatePagination } = require('../middleware/validator');
 
 // 建立连接（需要认证）
-router.post('/connect', authMiddleware, async (req, res) => {
+router.post('/connect', optionalAuthMiddleware, async (req, res) => {
   try {
     const { deviceCode, password } = req.body;
     const userId = req.userId;

@@ -9,13 +9,13 @@ const isDev = process.env.NODE_ENV === 'development';
 // 开发环境日志函数
 const devLog = (...args: unknown[]) => {
   if (isDev) {
-    console.log('[Socket]', ...args);
+    devLog('[Socket]', ...args);
   }
 };
 
 const devError = (...args: unknown[]) => {
   if (isDev) {
-    console.error('[Socket Error]', ...args);
+    devError('[Socket Error]', ...args);
   }
 };
 
@@ -266,24 +266,24 @@ class SocketService {
     });
 
     this.socket.on('disconnect', () => {
-      console.log('Disconnected from server');
+      devLog('Disconnected from server');
       this.stopHeartbeat();
     });
 
     this.socket.on('connect', () => {
-      console.log('Connected to server');
+      devLog('Connected to server');
       this.reconnectAttempts = 0;
       this.startHeartbeat();
     });
 
     this.socket.on('reconnect_attempt', () => {
       this.reconnectAttempts++;
-      console.log(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      devLog(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
     });
 
     // 心跳响应
     this.socket.on('heartbeat-ack', () => {
-      console.log('Heartbeat acknowledged');
+      devLog('Heartbeat acknowledged');
     });
   }
 

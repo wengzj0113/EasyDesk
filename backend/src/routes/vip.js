@@ -3,7 +3,7 @@ const router = express.Router();
 const crypto = require('crypto');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth');
-const { logError } = require('../middleware/logger');
+const { logError, logInfo, logWarn } = require('../middleware/logger');
 
 // VIP套餐配置
 const VIP_PLANS = {

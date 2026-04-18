@@ -22,26 +22,8 @@ const { Text } = Typography;
 // 是否为开发环境
 const isDev = process.env.NODE_ENV === 'development';
 const devLog = (...args: unknown[]) => {
-  if (isDev) console.log('[RemoteDesktop]', ...args);
+  if (isDev) devLog('[RemoteDesktop]', ...args);
 };
-
-// ========== 常量配置 ==========
-const CONFIG = {
-  // 心跳间隔（毫秒）
-  HEARTBEAT_INTERVAL: 30000,
-  // 鼠标点击延迟（毫秒）
-  MOUSE_CLICK_DELAY: 50,
-  // WebRTC 配置
-  RTC_CONFIG: {
-    VIDEO_WIDTH: 1920,
-    VIDEO_HEIGHT: 1080,
-    MIN_WIDTH: 1280,
-    MIN_HEIGHT: 720,
-    MAX_WIDTH: 1920,
-    MAX_HEIGHT: 1080,
-  },
-};
-void CONFIG;
 
 interface RemoteDesktopProps {
   connectionId: string;
@@ -209,7 +191,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       socketService.disconnect();
       cleanup();
     };
-  }, [role, targetDeviceCode, password, deviceCode]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [role, targetDeviceCode, password, deviceCode]); // eslint-disable-line react-hooks/exhaustive-deps -- cleanup is intentionally excluded to prevent re-registration loops
 
   // 如果是被控端，等待连接请求
   useEffect(() => {
@@ -264,12 +246,12 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
           const data = JSON.parse(event.data);
           handleDataMessage(data);
         } catch (e) {
-          console.error('解析消息失败:', e);
+          devError('解析消息失败:', e);
         }
       };
 
       pc.oniceconnectionstatechange = () => {
-        console.log('ICE connection state:', pc.iceConnectionState);
+        devLog('ICE connection state:', pc.iceConnectionState);
         if (pc.iceConnectionState === 'connected') {
           setConnecting(false);
           setConnected(true);
@@ -295,7 +277,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       socketService.sendSDPOffer(remoteDeviceCode, offer);
 
     } catch (err: any) {
-      console.error('启动控制失败:', err);
+      devError('启动控制失败:', err);
       setError('启动控制失败: ' + err.message);
       setConnecting(false);
     }
@@ -320,13 +302,13 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
             const data = JSON.parse(e.data);
             handleDataMessage(data);
           } catch (err) {
-            console.error('解析消息失败:', err);
+            devError('解析消息失败:', err);
           }
         };
       };
 
       pc.oniceconnectionstatechange = () => {
-        console.log('ICE connection state:', pc.iceConnectionState);
+        devLog('ICE connection state:', pc.iceConnectionState);
         if (pc.iceConnectionState === 'connected') {
           setConnecting(false);
           setConnected(true);
@@ -352,7 +334,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       await startScreenShare();
 
     } catch (err: any) {
-      console.error('处理 SDP offer 失败:', err);
+      devError('处理 SDP offer 失败:', err);
       setError('连接失败: ' + err.message);
       setConnecting(false);
     }
@@ -388,7 +370,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         setConnected(true);
         setConnecting(false);
       } catch (err: any) {
-        console.error('获取屏幕失败:', err);
+        devError('获取屏幕失败:', err);
         setError('无法获取屏幕: ' + err.message);
         setConnecting(false);
       }
@@ -445,7 +427,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       message.success('屏幕共享已启动');
 
     } catch (err: any) {
-      console.error('屏幕共享失败:', err);
+      devError('屏幕共享失败:', err);
       setError('无法启动屏幕共享: ' + err.message);
       setConnecting(false);
     }
@@ -460,7 +442,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
 
   // 处理控制指令（被控端）
   const handleControlCommand = useCallback((data: any) => {
-    console.log('Processing control command:', data);
+    devLog('Processing control command:', data);
 
     if (window.electronAPI) {
       // 发送控制指令到主进程进行系统级模拟

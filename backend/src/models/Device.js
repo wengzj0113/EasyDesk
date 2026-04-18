@@ -53,6 +53,10 @@ const deviceSchema = new mongoose.Schema({
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Device'
     },
+    deviceName: {
+      type: String,
+      default: ''
+    },
     boundAt: {
       type: Date,
       default: Date.now

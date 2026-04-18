@@ -16,9 +16,11 @@ const sanitizeRequest = (req, res, next) => {
         .trim();
     }
     if (typeof value === 'object' && value !== null) {
-      for (const key in value) {
-        value[key] = sanitizeValue(value[key]);
+      const cloned = Array.isArray(value) ? [...value] : { ...value };
+      for (const key in cloned) {
+        cloned[key] = sanitizeValue(cloned[key]);
       }
+      return cloned;
     }
     return value;
   };
@@ -74,9 +76,6 @@ const securityHeaders = (req, res, next) => {
 
   // 引用策略
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-
-  // 内容安全策略（根据实际需要调整）
-  res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self' ws: wss:;");
 
   next();
 };

@@ -44,12 +44,14 @@ api.interceptors.response.use(
     const errorMessage = error.response?.data?.error || error.message;
 
     // 记录错误日志
-    console.error('API Error:', {
-      url: error.config?.url,
-      method: error.config?.method,
-      status: statusCode,
-      message: errorMessage,
-    });
+    if (process.env.NODE_ENV === 'development') {
+      console.error('API Error:', {
+        url: error.config?.url,
+        method: error.config?.method,
+        status: statusCode,
+        message: errorMessage,
+      });
+    }
 
     // 根据错误状态码显示用户友好的提示
     const userMessage = errorMessages[statusCode] ||
