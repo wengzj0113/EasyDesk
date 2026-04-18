@@ -1,16 +1,15 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
-# 安装依赖
 COPY package*.json ./
-RUN npm install --production
+RUN npm ci --only=production
 
-# 复制源码
-COPY src ./src
+COPY src/ ./src/
 
-# 暴露端口
+ENV NODE_ENV=production
+ENV PORT=3001
+
 EXPOSE 3001
 
-# 启动服务
 CMD ["node", "src/index.js"]
