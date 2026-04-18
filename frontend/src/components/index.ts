@@ -3,3 +3,7 @@ export { default as Loading } from './Loading';
 export { default as ProtectedRoute } from './ProtectedRoute';
 export { default as RemoteDesktop } from './RemoteDesktop';
 export { default as FileTransfer } from './FileTransfer';
+export { default as QualityIndicator } from './QualityIndicator';
+export { default as ClipboardSync } from './ClipboardSync';
+export { default as RemoteFileManager } from './RemoteFileManager';
+export { default as ScreenshotPreview } from './ScreenshotPreview';

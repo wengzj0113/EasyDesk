@@ -1,10 +1,8 @@
 import React, { useState, useCallback } from 'react';
-import { Modal, Button, Space, message, Tabs, List } from 'antd';
+import { Modal, Button, Space, message, Tabs } from 'antd';
 import {
   CopyOutlined,
   ScissorOutlined,
-  EditOutlined,
-  CheckCircleOutlined
 } from '@ant-design/icons';
 
 interface ClipboardSyncProps {
@@ -20,7 +18,6 @@ const ClipboardSync: React.FC<ClipboardSyncProps> = ({
   dataChannel,
   isElectron
 }) => {
-  const [clipboardHistory] = useState<string[]>([]);
   const [activeTab, setActiveTab] = useState('sync');
 
   const isChannelReady = dataChannel?.readyState === 'open';
@@ -54,32 +51,6 @@ const ClipboardSync: React.FC<ClipboardSyncProps> = ({
       message.error('读取剪贴板失败: ' + error.message);
     }
   }, [isElectron, dataChannel]);
-
-  // 从远程接收剪贴板内容
-  const handleReceiveClipboard = useCallback(async (text: string) => {
-    if (!isElectron || !window.electronAPI) {
-      // 浏览器环境使用 Clipboard API
-      try {
-        await navigator.clipboard.writeText(text);
-        message.success('已复制到本地剪贴板');
-      } catch (error: any) {
-        message.error('复制失败: ' + error.message);
-      }
-      return;
-    }
-
-    try {
-      await window.electronAPI.clipboardWriteText(text);
-      message.success('已复制到本地剪贴板');
-    } catch (error: any) {
-      message.error('复制失败: ' + error.message);
-    }
-  }, [isElectron]);
-
-  // 复制历史记录中的内容
-  const handleCopyFromHistory = (text: string) => {
-    handleReceiveClipboard(text);
-  };
 
   const tabItems = [
     {
@@ -120,57 +91,6 @@ const ClipboardSync: React.FC<ClipboardSyncProps> = ({
                 <p>远程设备的剪贴板内容会自动同步到本地</p>
               </div>
             </Space>
-          )}
-        </div>
-      )
-    },
-    {
-      key: 'history',
-      label: (
-        <span>
-          <EditOutlined /> 历史记录
-        </span>
-      ),
-      children: (
-        <div>
-          {clipboardHistory.length === 0 ? (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: '#999' }}>
-              暂无剪贴板历史记录
-            </div>
-          ) : (
-            <List
-              size="small"
-              dataSource={clipboardHistory}
-              renderItem={(item, index) => (
-                <List.Item
-                  actions={[
-                    <Button
-                      key="copy"
-                      type="text"
-                      icon={<CopyOutlined />}
-                      onClick={() => handleCopyFromHistory(item)}
-                    >
-                      复制
-                    </Button>
-                  ].filter(Boolean)}
-                >
-                  <List.Item.Meta
-                    avatar={<CheckCircleOutlined style={{ color: '#52c41a' }} />}
-                    title={`记录 ${index + 1}`}
-                    description={
-                      <div style={{
-                        maxWidth: 400,
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap'
-                      }}>
-                        {item}
-                      </div>
-                    }
-                  />
-                </List.Item>
-              )}
-            />
           )}
         </div>
       )

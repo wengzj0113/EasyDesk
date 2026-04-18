@@ -42,8 +42,9 @@ const ConnectionHistoryPage: React.FC = () => {
       const res: any = await connectionAPI.getHistory(params);
       setConnections(res.connections || []);
       setTotal(res.pagination?.total || 0);
-    } catch (error) {
-      console.error('获取连接历史失败:', error);
+    } catch (error: unknown) {
+      const errMsg = error instanceof Error ? error.message : '未知错误';
+      message.error(`获取连接历史失败: ${errMsg}`);
     } finally {
       setLoading(false);
     }

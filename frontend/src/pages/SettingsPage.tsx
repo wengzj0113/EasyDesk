@@ -53,7 +53,7 @@ const SettingsPage: React.FC = () => {
             setSettings({ ...defaultSettings, ...res.settings });
           }
         })
-        .catch(console.error)
+        .catch((err: unknown) => message.error('加载设置失败'))
         .finally(() => setLoading(false));
     }
   }, [user]);
