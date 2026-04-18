@@ -4,7 +4,7 @@
 [![GitHub forks](https://img.shields.io/github/forks/wengzj0113/EasyDesk?style=flat-square)](https://github.com/wengzj0113/EasyDesk/network)
 [![GitHub issues](https://img.shields.io/github/issues/wengzj0113/EasyDesk?style=flat-square)](https://github.com/wengzj0113/EasyDesk/issues)
 [![GitHub license](https://img.shields.io/github/license/wengzj0113/EasyDesk?style=flat-square)](https://github.com/wengzj0113/EasyDesk/blob/main/LICENSE)
-[![Version](https://img.shields.io/badge/version-v1.1.0-blue?style=flat-square)](https://github.com/wengzj0113/EasyDesk/releases)
+[![Version](https://img.shields.io/badge/version-v1.3.0-blue?style=flat-square)](https://github.com/wengzj0113/EasyDesk/releases)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Web-green?style=flat-square)](https://github.com/wengzj0113/EasyDesk)
 
 [English](./README.md) | [中文](./README_CN.md)
@@ -16,14 +16,19 @@ EasyDesk 是一款免费开源的极简远程桌面应用，专为个人远程�
 ### 核心功能
 | 功能 | 描述 |
 |------|------|
-| 🔗 **免登录连接** | 6位设备码 + 密码，直接远程连接 |
-| 📱 **设备管理** | 登录后绑定设备，一键直连 |
-| 🖥️ **远程控制** | 流畅的鼠标键盘操作体验 |
-| 📁 **文件传输** | 安全可靠的点对点文件传输 |
+| 🔗 **免登录连接** | 9位设备码 + 密码，直接远程连接 |
+| 📱 **收藏设备** | 保存常用设备，一键直连 |
+| 🖥️ **远程控制** | 流畅的鼠标键盘操作体验，支持 Ctrl+Alt+Del |
+| 📁 **文件传输** | 安全可靠的 P2P 文件传输（最大 500MB），支持暂停/断点续传 |
 | 📸 **远程截图** | 快速截取远程设备屏幕 |
 | 📂 **文件管理** | 浏览和管理远程设备文件 |
 | 📥 **系统托盘** | 后台运行，快速调用 |
 | ⌨️ **全局快捷键** | 快速截图、显示/隐藏窗口 |
+
+### 连接质量
+- 📶 **实时监控** — 延迟、帧率、丢包率实时显示
+- 🔄 **自动重连** — 网络波动时指数退避自动恢复（1s~30s，最多重试5次）
+- ⚡ **ICE 重启** — WebRTC 连接失败时自动重启 ICE 候选采集
 
 ### 安全特性
 - 🔒 端到端加密传输
