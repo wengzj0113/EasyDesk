@@ -62,6 +62,25 @@ const deviceSchema = new mongoose.Schema({
       default: Date.now
     }
   }],
+  // 无人值守访问配置
+  unattendedAccess: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    trustedUntil: {
+      type: Date,
+      default: null
+    },
+    allowedControllers: {
+      type: [String],
+      default: []
+    },
+    requirePassword: {
+      type: Boolean,
+      default: true
+    }
+  },
   createdAt: {
     type: Date,
     default: Date.now

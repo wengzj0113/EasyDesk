@@ -1,0 +1,26 @@
+{
+  "name": "easydesk",
+  "version": "1.0.0",
+  "description": "[![GitHub stars](https://img.shields.io/github/stars/wengzj0113/EasyDesk?style=flat-square)](https://github.com/wengzj0113/EasyDesk/stargazers) [![GitHub forks](https://img.shields.io/github/forks/wengzj0113/EasyDesk?style=flat-square)](https://github.com/wengzj0113/EasyDesk/network) [![GitHub issues](https://img.shields.io/github/issues/wengzj0113/EasyDesk?style=flat-square)](https://github.com/wengzj0113/EasyDesk/issues) [![GitHub license](https://img.shields.io/github/license/wengzj0113/EasyDesk?style=flat-square)](https://github.com/wengzj0113/EasyDesk/blob/main/LICENSE) [![Version](https://img.shields.io/badge/version-v1.3.0-blue?style=flat-square)](https://github.com/wengzj0113/EasyDesk/releases) [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Web-green?style=flat-square)](https://github.com/wengzj0113/EasyDesk)",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wengzj0113/EasyDesk.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/wengzj0113/EasyDesk/issues"
+  },
+  "homepage": "https://github.com/wengzj0113/EasyDesk#readme",
+  "devDependencies": {
+    "@playwright/test": "^1.59.1"
+  }
+}

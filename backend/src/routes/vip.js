@@ -1,9 +1,22 @@
 const express = require('express');
 const router = express.Router();
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const User = require('../models/User');
 const authMiddleware = require('../middleware/auth');
 const { logError, logInfo, logWarn } = require('../middleware/logger');
+
+/**
+ * 支付回调专用限流器：严格限制回调接口的请求频率
+ * 防止恶意刷 callback 和暴力破解支付签名
+ */
+const paymentCallbackLimiter = rateLimit({
+  windowMs: 1 * 60 * 1000, // 1分钟窗口
+  max: 10, // 每分钟最多 10 次回调（正常业务完全够用）
+  message: { error: '请求频率超限，请稍后再试' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // VIP套餐配置
 const VIP_PLANS = {
@@ -74,7 +87,7 @@ router.post('/payment', authMiddleware, async (req, res) => {
 });
 
 // 支付回调（示例）
-router.post('/callback', async (req, res) => {
+router.post('/callback', paymentCallbackLimiter, async (req, res) => {
   try {
     const { orderId, status, userId, plan } = req.body;
 
@@ -166,8 +179,13 @@ router.post('/callback', async (req, res) => {
   }
 });
 
-// 模拟支付成功（测试用）
+// 模拟支付成功（测试用）- 仅在非生产环境可用
 router.post('/simulate-payment', authMiddleware, async (req, res) => {
+  if (process.env.NODE_ENV === 'production') {
+    logWarn('生产环境禁止访问模拟支付接口', { ip: req.ip });
+    return res.status(403).json({ error: '该接口在生产环境不可用' });
+  }
+
   try {
     const userId = req.userId;
     const { plan } = req.body;

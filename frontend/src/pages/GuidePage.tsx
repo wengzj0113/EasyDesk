@@ -1,6 +1,6 @@
 import React from 'react';
-import { Card, Typography, Button, Steps, Row, Col, List, Alert } from 'antd';
-import { ArrowLeftOutlined, DesktopOutlined, UserOutlined, CrownOutlined, LockOutlined, CheckCircleOutlined, SettingOutlined } from '@ant-design/icons';
+import { Card, Typography, Button, Steps, Row, Col, List, Alert, Space } from 'antd';
+import { ArrowLeftOutlined, DesktopOutlined, UserOutlined, CrownOutlined, LockOutlined, CheckCircleOutlined, SettingOutlined, ToolOutlined, RocketOutlined, SafetyOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 
 const { Title, Text } = Typography;
@@ -27,7 +27,7 @@ const GuidePage: React.FC = () => {
   ];
 
   return (
-    <div style={{ padding: '50px', maxWidth: 900, margin: '0 auto' }}>
+    <div style={{ padding: 'clamp(16px, 4vw, 50px)', maxWidth: 900, margin: '0 auto' }}>
       <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ marginBottom: 24 }}>
         返回首页
       </Button>
@@ -48,7 +48,7 @@ const GuidePage: React.FC = () => {
       </Row>
 
       {/* 被控端设置 */}
-      <Card title="🔧 被控端设置（需要被控制的电脑）" style={{ marginBottom: 24 }}>
+      <Card title={<Space><ToolOutlined /><span>被控端设置（需要被控制的电脑）</span></Space>} style={{ marginBottom: 24 }}>
         <Alert
           message="重要：被控电脑必须按以下步骤操作"
           type="warning"
@@ -80,7 +80,7 @@ const GuidePage: React.FC = () => {
       </Card>
 
       {/* 控制端操作 */}
-      <Card title="🎮 控制端操作（发起控制的电脑）" style={{ marginBottom: 24 }}>
+      <Card title={<Space><RocketOutlined /><span>控制端操作（发起控制的电脑）</span></Space>} style={{ marginBottom: 24 }}>
         <Steps
           current={0}
           direction="vertical"
@@ -106,7 +106,7 @@ const GuidePage: React.FC = () => {
       </Card>
 
       {/* 注意事项 */}
-      <Card title="⚠️ 注意事项" style={{ marginBottom: 24 }}>
+      <Card title={<Space><SafetyOutlined /><span>注意事项</span></Space>} style={{ marginBottom: 24 }}>
         <List
           size="small"
           dataSource={[

@@ -1,5 +1,13 @@
 const { logError, formatLog } = require('./logger');
 
+/**
+ * 统一错误处理中间件
+ * 捕获所有未处理的错误，返回统一的 JSON 响应格式
+ * @param {Error} err - 错误对象
+ * @param {import('express').Request} req - Express 请求对象
+ * @param {import('express').Response} res - Express 响应对象
+ * @param {import('express').NextFunction} next - 下一个中间件
+ */
 const errorHandler = (err, req, res, next) => {
   logError('未处理的错误', err);
 

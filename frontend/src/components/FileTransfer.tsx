@@ -8,22 +8,16 @@ import {
   FileExcelOutlined,
   FileWordOutlined,
   DeleteOutlined,
-  CheckCircleOutlined,
   CloseCircleOutlined,
   PauseCircleOutlined,
   PlayCircleOutlined,
   CloudUploadOutlined,
 } from '@ant-design/icons';
+import { createLogger } from '../utils/logger';
 
+const logger = createLogger('FileTransfer');
 const { Dragger } = Upload;
 const { Text } = Typography;
-
-// 开发环境日志
-const devLog = (...args: unknown[]) => {
-  if (process.env.NODE_ENV === 'development') {
-    console.log('[FileTransfer]', ...args);
-  }
-};
 
 // 每个分块 32KB，避免 DataChannel 缓冲区溢出
 const CHUNK_SIZE = 32 * 1024;
@@ -75,12 +69,6 @@ const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, dataChann
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const formatSpeed = (bytesPerSec: number) => {
-    if (bytesPerSec < 1024) return `${bytesPerSec.toFixed(0)} B/s`;
-    if (bytesPerSec < 1024 * 1024) return `${(bytesPerSec / 1024).toFixed(1)} KB/s`;
-    return `${(bytesPerSec / (1024 * 1024)).toFixed(1)} MB/s`;
-  };
-
   const readChunkAsBase64 = (chunk: Blob): Promise<string> =>
     new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -130,7 +118,7 @@ const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, dataChann
       for (let i = startChunk; i < totalChunks; i++) {
         // 检查是否暂停/中止
         if (transfer.aborted) {
-          devLog('File transfer aborted:', uid);
+          logger.debug('File transfer aborted:', uid);
           return;
         }
         while (transfer.paused) {
@@ -207,7 +195,7 @@ const FileTransfer: React.FC<FileTransferProps> = ({ visible, onClose, dataChann
       setFileList(prev => prev.map(f =>
         f.uid === uid ? { ...f, status: 'paused' } : f
       ));
-      devLog('File transfer paused:', uid);
+      logger.debug('File transfer paused:', uid);
     }
   };
 

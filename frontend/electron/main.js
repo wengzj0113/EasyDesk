@@ -862,3 +862,199 @@ ipcMain.handle('print-to-pdf', async (event, options = {}) => {
     return { success: false, error: error.message };
   }
 });
+
+// ========== 电源控制功能 ==========
+
+/**
+ * 执行电源操作
+ * @param {string} action - 电源操作类型
+ * @returns {Promise<{success: boolean, error?: string}>}
+ */
+function executePowerAction(action) {
+  return new Promise((resolve) => {
+    const isWindows = process.platform === 'win32';
+    let command;
+    let success = true;
+
+    switch (action) {
+      case 'shutdown':
+        // Windows: 立即关机 (0秒延迟)
+        // Linux: 需要 sudo 权限
+        command = isWindows
+          ? 'shutdown /s /t 0'
+          : 'pkexec shutdown -h now || sudo shutdown -h now';
+        break;
+      case 'restart':
+        // Windows: 立即重启 (0秒延迟)
+        // Linux: 需要 sudo 权限
+        command = isWindows
+          ? 'shutdown /r /t 0'
+          : 'pkexec shutdown -r now || sudo shutdown -r now';
+        break;
+      case 'lock':
+        // Windows: 使用系统 DLL 锁定工作站
+        // Linux: 使用 xscreensaver 或 mate-screensaver
+        command = isWindows
+          ? 'rundll32.exe user32.dll,LockWorkStation'
+          : 'xdg-screensaver lock || mate-screensaver-command -l || gnome-screensaver-command -l';
+        break;
+      case 'sleep':
+        // Windows: 进入睡眠模式
+        // Linux: 使用 systemd suspend
+        command = isWindows
+          ? 'rundll32.exe powrprof.dll,SetSuspendState 0,1,0'
+          : 'pkexec systemctl suspend || sudo systemctl suspend';
+        break;
+      default:
+        resolve({ success: false, error: `不支持的电源操作: ${action}` });
+        return;
+    }
+
+    exec(command, (error) => {
+      if (error) {
+        console.error(`电源操作 ${action} 失败:`, error.message);
+        // 尝试备用命令
+        const altCommand = isWindows
+          ? `powershell -Command "${action === 'shutdown' ? 'Stop-Computer' : action === 'restart' ? 'Restart-Computer' : ''}"`
+          : `dbus-send --system --print-reply --dest="org.freedesktop.login1" /org/freedesktop/login1 "org.freedesktop.login1.Manager.${action === 'sleep' ? 'Suspend' : action === 'shutdown' ? 'PowerOff' : 'Reboot'}(true)"`;
+
+        exec(altCommand, (altError) => {
+          if (altError) {
+            console.error(`备用电源命令也失败:`, altError.message);
+            resolve({ success: false, error: `执行失败: ${altError.message || '权限不足'}` });
+          } else {
+            resolve({ success: true });
+          }
+        });
+      } else {
+        console.log(`电源操作 ${action} 已执行`);
+        resolve({ success: true });
+      }
+    });
+  });
+}
+
+// IPC处理器 - 执行电源操作
+ipcMain.handle('power-action', async (event, action) => {
+  try {
+    console.log('收到电源操作请求:', action);
+    const result = await executePowerAction(action);
+    return result;
+  } catch (error) {
+    console.error('电源操作异常:', error);
+    return { success: false, error: error.message };
+  }
+});
+
+// IPC处理器 - 获取支持的电源操作
+ipcMain.handle('power-supported-actions', () => {
+  return {
+    shutdown: true,
+    restart: true,
+    lock: true,
+    sleep: true,
+  };
+});
+
+// ========== Shell 执行功能 ==========
+
+// Shell 命令超时时间（毫秒）
+const SHELL_TIMEOUT = 30000; // 30秒
+
+// Shell 执行
+ipcMain.handle('shell-execute', async (event, command) => {
+  return new Promise((resolve) => {
+    // 验证命令（基本安全检查）
+    if (!command || typeof command !== 'string') {
+      resolve({ success: false, output: '', error: '无效的命令', exitCode: 1 });
+      return;
+    }
+
+    // 禁止的危险命令
+    const dangerousPatterns = [
+      /rm\s+-rf\s+\//i,
+      /format\s+[a-z]:/i,
+      /del\s+\/f\s+\/q\s+c:\\/i,
+      /shutdown\s+\/s/i,
+      /shutdown\s+\/r/i,
+      /net\s+user\s+/i,
+      /net\s+localgroup\s+/i,
+    ];
+
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(command)) {
+        resolve({ success: false, output: '', error: '该命令被禁止执行', exitCode: 1 });
+        return;
+      }
+    }
+
+    const isWindows = process.platform === 'win32';
+    const shell = isWindows ? 'cmd.exe' : '/bin/bash';
+    const shellArgs = isWindows ? ['/c', command] : ['-c', command];
+
+    // 使用 spawn 而不是 exec 以支持长时间运行的命令
+    const { spawn } = require('child_process');
+
+    let output = '';
+    let errorOutput = '';
+    let settled = false;
+
+    const child = spawn(shell, shellArgs, {
+      cwd: os.homedir(),
+      env: process.env,
+      windowsHide: true,
+    });
+
+    // 设置超时
+    const timeoutId = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        child.kill('SIGKILL');
+        resolve({ success: false, output, error: '命令执行超时（30秒）', exitCode: 124 });
+      }
+    }, SHELL_TIMEOUT);
+
+    child.stdout.on('data', (data) => {
+      output += data.toString();
+      // 发送增量输出到渲染进程
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('shell-output', { output: data.toString() });
+      }
+    });
+
+    child.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+      // 发送增量错误输出
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('shell-output', { error: data.toString() });
+      }
+    });
+
+    child.on('close', (code) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve({
+          success: code === 0,
+          output,
+          error: errorOutput,
+          exitCode: code ?? 0,
+        });
+      }
+    });
+
+    child.on('error', (err) => {
+      if (!settled) {
+        settled = true;
+        clearTimeout(timeoutId);
+        resolve({ success: false, output, error: err.message, exitCode: 1 });
+      }
+    });
+  });
+});
+
+// 获取 Shell 输出（监听器）
+ipcMain.on('shell-output-listener', (event) => {
+  // 返回当前的 shell-output 监听状态
+  event.sender.send('shell-output-status', { listening: true });
+});

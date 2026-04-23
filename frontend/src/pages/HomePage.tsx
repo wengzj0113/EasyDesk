@@ -11,6 +11,7 @@ import {
   Divider,
   message,
   Alert,
+  Skeleton,
 } from 'antd';
 import {
   DesktopOutlined,
@@ -33,6 +34,12 @@ const { Password } = Input;
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
   const { token } = useStore();
+  const [mounted, setMounted] = useState(false);
+
+  // Mount animation
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const [deviceCode, setDeviceCode] = useState('');
   const [tempPassword, setTempPassword] = useState('');
@@ -66,8 +73,13 @@ const HomePage: React.FC = () => {
     message.success('设备码已复制到剪贴板');
   };
 
-  return (
-    <div style={{ padding: '0 0 24px 0' }}>
+    return (
+    <div style={{
+      padding: '0 0 24px 0',
+      opacity: mounted ? 1 : 0,
+      transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+      transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+    }}>
       <div style={{ marginBottom: 24 }}>
         <Title level={3} style={{ margin: 0 }}>远程控制</Title>
         <Text type="secondary">本设备已被控，等待远程连接</Text>
@@ -79,80 +91,95 @@ const HomePage: React.FC = () => {
           <Card
             title={<Space><DesktopOutlined /><span>本机状态</span></Space>}
           >
-            {/* 状态提示 */}
-            <Alert
-              message="已开启被控模式，他人可以通过设备码远程控制你的电脑"
-              type="success"
-              showIcon
-              icon={<CheckCircleOutlined />}
-              style={{ marginBottom: 24 }}
-            />
-
-            {/* 在线状态 */}
-            <div style={{ textAlign: 'center', marginBottom: 24 }}>
-              <Tag
-                icon={<WifiOutlined />}
-                color="success"
-                style={{ fontSize: 14, padding: '4px 12px' }}
-              >
-                在线 - 等待连接
-              </Tag>
-            </div>
-
-            <Divider />
-
-            {/* 设备码 */}
-            <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
-                你的设备码
-              </Text>
-              <Space.Compact style={{ width: '100%' }}>
-                <Input
-                  value={deviceCode}
-                  readOnly
-                  disabled={loadingCode}
-                  style={{ fontWeight: 'bold', fontSize: 20, textAlign: 'center', letterSpacing: 6 }}
-                  size="large"
-                />
-                <Button size="large" icon={<CopyOutlined />} onClick={copyDeviceCode} disabled={!deviceCode}>
-                  复制
-                </Button>
-              </Space.Compact>
-            </div>
-
-            {/* 连接密码 */}
-            <div style={{ marginBottom: 16 }}>
-              <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>连接密码</Text>
-              <Space.Compact style={{ width: '100%' }}>
-                <Password
-                  value={tempPassword}
-                  readOnly
-                  size="large"
-                  style={{ textAlign: 'center' }}
-                />
-                <Button
-                  size="large"
-                  icon={<SettingOutlined />}
-                  onClick={() => navigate('/devices')}
-                >
-                  修改
-                </Button>
-              </Space.Compact>
-            </div>
-
-            {!token && (
+            {loadingCode ? (
+              <Space direction="vertical" style={{ width: '100%' }} size="large">
+                <Card style={{ marginBottom: 0 }}>
+                  <Skeleton active avatar paragraph={{ rows: 2 }} />
+                </Card>
+                <Card style={{ marginBottom: 0 }}>
+                  <Skeleton active paragraph={{ rows: 3 }} />
+                </Card>
+                <Card style={{ marginBottom: 0 }}>
+                  <Skeleton active paragraph={{ rows: 2 }} />
+                </Card>
+              </Space>
+            ) : (
+            <>
+              {/* 状态提示 */}
               <Alert
-                message="提示"
-                description="登录后可绑定设备，开启长期自动允许控制，无需每次手动开启"
-                type="info"
+                message="已开启被控模式，他人可以通过设备码远程控制你的电脑"
+                type="success"
                 showIcon
-                style={{ marginTop: 16 }}
-                action={
-                  <Button size="small" onClick={() => navigate('/guide')}>
-                    了解更多
-                  </Button>
-                }
+                icon={<CheckCircleOutlined />}
+                style={{ marginBottom: 24 }}
               />
+
+              {/* 在线状态 */}
+              <div style={{ textAlign: 'center', marginBottom: 24 }}>
+                <Tag
+                  icon={<WifiOutlined />}
+                  color="success"
+                  style={{ fontSize: 14, padding: '4px 12px' }}
+                >
+                  在线 - 等待连接
+                </Tag>
+              </div>
+
+              <Divider />
+
+              {/* 设备码 */}
+              <div style={{ marginBottom: 16 }}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>
+                  你的设备码
+                </Text>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Input
+                    value={deviceCode}
+                    readOnly
+                    style={{ fontWeight: 'bold', fontSize: 20, textAlign: 'center', letterSpacing: 6 }}
+                    size="large"
+                  />
+                  <Button size="large" icon={<CopyOutlined />} onClick={copyDeviceCode} disabled={!deviceCode} aria-label="复制设备码">
+                    复制
+                  </Button>
+                </Space.Compact>
+              </div>
+
+              {/* 连接密码 */}
+              <div style={{ marginBottom: 16 }}>
+                <Text type="secondary" style={{ display: 'block', marginBottom: 8 }}>连接密码</Text>
+                <Space.Compact style={{ width: '100%' }}>
+                  <Password
+                    value={tempPassword}
+                    readOnly
+                    size="large"
+                    style={{ textAlign: 'center' }}
+                  />
+                  <Button
+                    size="large"
+                    icon={<SettingOutlined />}
+                    onClick={() => navigate('/devices')}
+                  >
+                    修改
+                  </Button>
+                </Space.Compact>
+              </div>
+
+              {!token && (
+                <Alert
+                  message="提示"
+                  description="登录后可绑定设备，开启长期自动允许控制，无需每次手动开启"
+                  type="info"
+                  showIcon
+                  style={{ marginTop: 16 }}
+                  action={
+                    <Button size="small" onClick={() => navigate('/guide')}>
+                      了解更多
+                    </Button>
+                  }
+                />
+              )}
+            </>
             )}
           </Card>
         </Col>

@@ -1,5 +1,9 @@
 const mongoose = require('mongoose');
 
+/**
+ * 连接记录模型
+ * 记录设备之间的连接历史和质量信息
+ */
 const connectionSchema = new mongoose.Schema({
   deviceId: {
     type: mongoose.Schema.Types.ObjectId,

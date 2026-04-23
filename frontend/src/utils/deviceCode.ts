@@ -7,9 +7,22 @@
 const CODE_KEY = 'session-device-code';
 const PWD_KEY = 'session-device-password';
 
-const randomCode = (len: number) =>
-  Math.random().toString(36).substring(2, 2 + len).toUpperCase().padEnd(len, 'A').substring(0, len);
+/**
+ * 使用 Web Crypto API 生成密码学安全的随机码
+ * @param len - 验证码长度
+ * @returns 指定长度的随机字母数字字符串
+ */
+const randomCode = (len: number): string => {
+  const array = new Uint8Array(len);
+  crypto.getRandomValues(array);
+  return Array.from(array, b => '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ'[b % 36])
+    .join('').substring(0, len);
+};
 
+/**
+ * 获取或生成会话设备码
+ * @returns 9位设备码
+ */
 export const getSessionDeviceCode = (): string => {
   let code = localStorage.getItem(CODE_KEY);
   if (!code || code.length !== 9) {
@@ -19,6 +32,10 @@ export const getSessionDeviceCode = (): string => {
   return code;
 };
 
+/**
+ * 获取或生成会话密码
+ * @returns 6位随机密码
+ */
 export const getSessionPassword = (): string => {
   let pwd = localStorage.getItem(PWD_KEY);
   if (!pwd || pwd.length < 4) {
@@ -28,8 +45,16 @@ export const getSessionPassword = (): string => {
   return pwd;
 };
 
+/**
+ * 手动设置会话设备码
+ * @param code - 设备码
+ */
 export const setSessionDeviceCode = (code: string) =>
   localStorage.setItem(CODE_KEY, code);
 
+/**
+ * 手动设置会话密码
+ * @param pwd - 密码
+ */
 export const setSessionPassword = (pwd: string) =>
   localStorage.setItem(PWD_KEY, pwd);

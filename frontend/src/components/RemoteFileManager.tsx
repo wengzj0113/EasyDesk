@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Modal,
   Table,
@@ -65,6 +65,9 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
   const [uploadModalVisible, setUploadModalVisible] = useState(false);
   const [uploadFileList, setUploadFileList] = useState<File[]>([]);
 
+  // 用于追踪当前请求的 ID，防止竞态条件
+  const currentRequestIdRef = useRef<number>(0);
+
   // 初始化加载磁盘列表
   useEffect(() => {
     if (visible && isElectron && window.electronAPI) {
@@ -86,9 +89,15 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
       return;
     }
 
+    // 为本次请求生成唯一 ID，用于忽略过时的响应
+    const requestId = ++currentRequestIdRef.current;
     setLoading(true);
     try {
       const result = await window.electronAPI.readDirectory(path);
+      // 检查是否为最新请求，防止竞态条件导致的旧数据覆盖新数据
+      if (requestId !== currentRequestIdRef.current) {
+        return;
+      }
       if (result.success && result.items) {
         setFiles(result.items);
         setCurrentPath(path);
@@ -97,9 +106,15 @@ const RemoteFileManager: React.FC<RemoteFileManagerProps> = ({
         message.error(result.error || '无法读取目录');
       }
     } catch (error: any) {
-      message.error(error.message || '加载失败');
+      // 仅在最新请求时显示错误
+      if (requestId === currentRequestIdRef.current) {
+        message.error(error.message || '加载失败');
+      }
     } finally {
-      setLoading(false);
+      // 仅在最新请求时关闭加载状态
+      if (requestId === currentRequestIdRef.current) {
+        setLoading(false);
+      }
     }
   }, [isElectron]);
 

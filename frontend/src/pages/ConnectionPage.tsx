@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Form, Input, Button, Typography, message, Card, Alert, Steps, Radio, Space, Layout, Tooltip, Divider, List, Tag, Empty } from 'antd';
-import { ArrowLeftOutlined, DesktopOutlined, CheckCircleOutlined, LoadingOutlined, MonitorOutlined, SwapOutlined, HeartOutlined, ClockCircleOutlined, DeleteOutlined } from '@ant-design/icons';
+import { Form, Input, Button, Typography, message, Card, Alert, Steps, Radio, Space, Layout, Tooltip, Divider, List, Tag, Empty, Skeleton, Modal } from 'antd';
+import { ArrowLeftOutlined, DesktopOutlined, CheckCircleOutlined, LoadingOutlined, MonitorOutlined, SwapOutlined, HeartOutlined, ClockCircleOutlined, DeleteOutlined, LockOutlined, InfoCircleOutlined } from '@ant-design/icons';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useStore, type SavedConnection } from '../store/useStore';
 import { getSessionDeviceCode, getSessionPassword } from '../utils/deviceCode';
@@ -14,6 +14,12 @@ const ConnectionPage: React.FC = () => {
   const location = useLocation();
   const [form] = Form.useForm();
   const { token, savedConnections, connectionHistory, removeSavedConnection } = useStore();
+  const [mounted, setMounted] = React.useState(false);
+
+  // Mount animation
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   // 从 HomePage 跳转时携带的 state
   const locationState = location.state as { deviceCode?: string; password?: string; role?: string } | null;
@@ -65,6 +71,12 @@ const ConnectionPage: React.FC = () => {
     message.success(`正在连接 ${item.deviceName || item.deviceCode}...`);
   };
 
+  const formatDeviceCode = (value: string): string => {
+    const digits = value.replace(/\D/g, '').substring(0, 9);
+    const formatted = digits.replace(/(\d{3})(\d{3})(\d{3})/, '$1 $2 $3');
+    return formatted.trim();
+  };
+
   const onFinish = async (values: { deviceCode: string; password: string }) => {
     setLoading(true);
     setConnectionStatus('requesting');
@@ -77,8 +89,10 @@ const ConnectionPage: React.FC = () => {
       message.success('连接请求已发出，等待对方确认...');
     } catch (error: unknown) {
       setConnectionStatus('idle');
-      const msg = error instanceof Error ? error.message : '未知错误';
-      message.error(msg || '连接失败，请检查设备码和密码');
+      message.error({
+        content: '连接失败，请检查设备码和密码是否正确',
+        duration: 3,
+      });
     } finally {
       setLoading(false);
     }
@@ -91,8 +105,17 @@ const ConnectionPage: React.FC = () => {
   };
 
   const handleDisconnect = () => {
-    handleReset();
-    navigate('/');
+    Modal.confirm({
+      title: '确定断开连接？',
+      content: '确定要断开当前远程连接吗？',
+      okText: '确定断开',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => {
+        handleReset();
+        navigate('/');
+      },
+    });
   };
 
   // 控制端：已连接，展示远程桌面
@@ -151,7 +174,14 @@ const ConnectionPage: React.FC = () => {
 
   // 控制端：连接表单
   return (
-    <Content style={{ padding: '50px', background: '#f0f2f5', minHeight: '100vh' }}>
+    <Content style={{
+      padding: 'clamp(16px, 4vw, 50px)',
+      background: '#f0f2f5',
+      minHeight: '100vh',
+      opacity: mounted ? 1 : 0,
+      transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+      transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+    }}>
       <div style={{ maxWidth: 600, margin: '0 auto' }}>
         <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ marginBottom: 24 }}>
           返回首页
@@ -163,7 +193,7 @@ const ConnectionPage: React.FC = () => {
           </Title>
 
           {/* 收藏连接快捷入口 */}
-          {savedConnections.length > 0 && (
+          {savedConnections.length > 0 ? (
             <>
               <div style={{ marginBottom: 16 }}>
                 <Space>
@@ -183,6 +213,7 @@ const ConnectionPage: React.FC = () => {
                           size="small"
                           icon={<DeleteOutlined />}
                           danger
+                          aria-label="删除收藏"
                           onClick={(e) => {
                             e.stopPropagation();
                             removeSavedConnection(conn.id);
@@ -205,10 +236,27 @@ const ConnectionPage: React.FC = () => {
               </div>
               <Divider style={{ margin: '12px 0' }} />
             </>
+          ) : (
+            <>
+              <Card style={{ textAlign: 'center', padding: 24, marginBottom: 16 }}>
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={
+                    <Space direction="vertical">
+                      <Text type="secondary">暂无收藏的设备</Text>
+                      <Button type="link" onClick={() => navigate('/guide')}>
+                        如何连接设备？
+                      </Button>
+                    </Space>
+                  }
+                />
+              </Card>
+              <Divider style={{ margin: '12px 0' }} />
+            </>
           )}
 
           {/* 最近连接 */}
-          {connectionHistory.length > 0 && (
+          {connectionHistory.length > 0 ? (
             <>
               <div style={{ marginBottom: 16 }}>
                 <Space>
@@ -245,6 +293,23 @@ const ConnectionPage: React.FC = () => {
               </div>
               <Divider style={{ margin: '12px 0' }} />
             </>
+          ) : (
+            <>
+              <Card style={{ textAlign: 'center', padding: 24, marginBottom: 16 }}>
+                <Empty
+                  image={Empty.PRESENTED_IMAGE_SIMPLE}
+                  description={
+                    <Space direction="vertical">
+                      <Text type="secondary">暂无连接历史</Text>
+                      <Text type="secondary" style={{ fontSize: 12 }}>
+                        连接设备后会自动记录历史
+                      </Text>
+                    </Space>
+                  }
+                />
+              </Card>
+              <Divider style={{ margin: '12px 0' }} />
+            </>
           )}
 
           {/* 模式选择 */}
@@ -252,13 +317,18 @@ const ConnectionPage: React.FC = () => {
             value={connectionMode}
             onChange={(e) => setConnectionMode(e.target.value)}
             style={{ width: '100%', marginBottom: 24 }}
+            aria-label="选择控制模式"
           >
             <Space direction="vertical" style={{ width: '100%' }}>
-              <Radio value="controller">
-                <Space><MonitorOutlined /><span>控制端 - 控制别人的电脑</span></Space>
+              <Radio value="controller" aria-label="控制端模式">
+                <Tooltip title="作为控制端，主动连接并控制其他设备">
+                  <Space><MonitorOutlined /><span>控制端 - 控制别人的电脑</span></Space>
+                </Tooltip>
               </Radio>
-              <Radio value="controlled">
-                <Space><DesktopOutlined /><span>被控端 - 让别人控制我的电脑</span></Space>
+              <Radio value="controlled" aria-label="被控端模式">
+                <Tooltip title="作为被控端，等待其他设备连接">
+                  <Space><DesktopOutlined /><span>被控端 - 让别人控制我的电脑</span></Space>
+                </Tooltip>
               </Radio>
             </Space>
           </Radio.Group>
@@ -275,6 +345,15 @@ const ConnectionPage: React.FC = () => {
             />
           )}
 
+          {loading ? (
+            <Card style={{ marginBottom: 16 }}>
+              <Space direction="vertical" style={{ width: '100%' }} size="middle">
+                <Skeleton.Input active size="large" style={{ width: '100%' }} />
+                <Skeleton.Input active size="large" style={{ width: '100%' }} />
+                <Skeleton.Button active size="large" style={{ width: 120 }} />
+              </Space>
+            </Card>
+          ) : (
           <Form form={form} layout="vertical" onFinish={onFinish} disabled={loading}>
             <Form.Item
               label="设备码"
@@ -286,18 +365,37 @@ const ConnectionPage: React.FC = () => {
             >
               <Input
                 placeholder="请输入9位数字设备码"
-                style={{ letterSpacing: '6px', fontWeight: 'bold' }}
-                maxLength={9}
                 size="large"
+                maxLength={11}
+                onChange={(e) => {
+                  const formatted = formatDeviceCode(e.target.value);
+                  if (formatted !== e.target.value) {
+                    form.setFieldValue('deviceCode', formatted);
+                  }
+                }}
+                suffix={
+                  <Tooltip title="格式: 123 456 789">
+                    <InfoCircleOutlined style={{ color: '#999' }} />
+                  </Tooltip>
+                }
+                style={{ letterSpacing: '6px', fontWeight: 'bold' }}
               />
             </Form.Item>
 
             <Form.Item
               label="连接密码"
               name="password"
-              rules={[{ required: true, message: '请输入连接密码' }]}
+              rules={[
+                { required: true, message: '请输入连接密码' },
+                { min: 6, max: 6, message: '密码必须是6位纯数字' }
+              ]}
             >
-              <Input.Password placeholder="请输入连接密码" size="large" />
+              <Input.Password
+                placeholder="6位纯数字密码"
+                size="large"
+                maxLength={6}
+                prefix={<LockOutlined />}
+              />
             </Form.Item>
 
             <Form.Item>
@@ -313,6 +411,7 @@ const ConnectionPage: React.FC = () => {
               </Button>
             </Form.Item>
           </Form>
+          )}
 
           <div style={{ textAlign: 'center', marginTop: 16, color: '#999' }}>
             {token ? '您已登录，可享受更稳定的连接服务' : '免登录即可连接，无需注册账户'}

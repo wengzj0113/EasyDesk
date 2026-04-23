@@ -4,6 +4,7 @@ const { Server } = require('socket.io');
 const cors = require('cors');
 const helmet = require('helmet');
 const dotenv = require('dotenv');
+const mongoose = require('mongoose');
 
 // 路由导入
 const authRoutes = require('./routes/auth');
@@ -27,9 +28,25 @@ const app = express();
 const server = http.createServer(app);
 
 // CORS 配置：生产环境必须明确指定允许的域名
-const corsOrigin = process.env.NODE_ENV === 'production'
-  ? (process.env.CORS_ORIGIN || null)
-  : (process.env.CORS_ORIGIN || 'http://localhost:3000');
+const corsOrigin = (() => {
+  if (process.env.NODE_ENV === 'production') {
+    if (!process.env.CORS_ORIGIN) {
+      throw new Error('CORS_ORIGIN environment variable is required in production');
+    }
+    return process.env.CORS_ORIGIN;
+  }
+  return process.env.CORS_ORIGIN || 'http://localhost:3000';
+})();
+
+// HTTPS 重定向（生产环境）
+if (process.env.NODE_ENV === 'production') {
+  app.use((req, res, next) => {
+    if (req.headers['x-forwarded-proto'] !== 'https') {
+      return res.redirect(`https://${req.hostname}${req.url}`);
+    }
+    next();
+  });
+}
 
 const io = new Server(server, {
   cors: {
@@ -71,11 +88,39 @@ initializeSocketIO(io);
 app.use(errorHandler);
 
 // 数据库连接
-const mongoose = require('mongoose');
-
 mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/easydesk')
   .then(() => logInfo('MongoDB connected successfully'))
   .catch(err => logError('MongoDB connection failed', err));
+
+/**
+ * 优雅关闭处理器
+ * 确保服务器在收到 SIGTERM/SIGINT 信号时正确关闭数据库连接
+ * @param {string} signal - 收到的信号名称
+ */
+const gracefulShutdown = async (signal) => {
+  console.log(`[Server] Received ${signal}. Starting graceful shutdown...`);
+  server.close(async () => {
+    try {
+      await mongoose.connection.close();
+      console.log('[Server] HTTP server closed');
+      console.log('[Server] MongoDB connection closed');
+    } catch (err) {
+      console.error('[Server] Error during shutdown:', err);
+    } finally {
+      console.log('[Server] Graceful shutdown complete');
+      process.exit(0);
+    }
+  });
+  // 强制退出：10秒内无法优雅关闭则强制终止
+  setTimeout(() => {
+    console.error('[Server] Could not close connections in time, forcefully shutting down');
+    process.exit(1);
+  }, 10000);
+};
+
+// 监听终止信号
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT', () => gracefulShutdown('SIGINT'));
 
 // 启动服务器
 const PORT = process.env.PORT || 3001;

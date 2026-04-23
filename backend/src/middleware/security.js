@@ -3,22 +3,41 @@
 const express = require('express');
 
 /**
+ * HTML 实体映射表
+ */
+const HTML_ENTITIES = {
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#x27;',
+  '/': '&#x2F;',
+};
+
+/**
+ * 对字符串进行 HTML 转义，防止 XSS
+ * @param {string} str - 待转义字符串
+ * @returns {string} 转义后的字符串
+ */
+const escapeHtml = (str) => {
+  return String(str).replace(/[&<>"'/]/g, (char) => HTML_ENTITIES[char] || char);
+};
+
+/**
  * XSS 防护：清理请求体中的危险字符
+ * 使用白名单方式转义 HTML 特殊字符，而非简单的字符串替换
  */
 const sanitizeRequest = (req, res, next) => {
   const sanitizeValue = (value) => {
     if (typeof value === 'string') {
-      // 移除潜在的 XSS 危险字符
-      return value
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/javascript:/gi, '')
-        .replace(/on\w+\s*=/gi, '')
-        .trim();
+      return escapeHtml(value);
     }
     if (typeof value === 'object' && value !== null) {
-      const cloned = Array.isArray(value) ? [...value] : { ...value };
-      for (const key in cloned) {
-        cloned[key] = sanitizeValue(cloned[key]);
+      const cloned = Array.isArray(value) ? [] : {};
+      for (const key in value) {
+        if (Object.prototype.hasOwnProperty.call(value, key)) {
+          cloned[key] = sanitizeValue(value[key]);
+        }
       }
       return cloned;
     }
@@ -26,13 +45,13 @@ const sanitizeRequest = (req, res, next) => {
   };
 
   if (req.body) {
-    sanitizeValue(req.body);
+    req.body = sanitizeValue(req.body);
   }
   if (req.query) {
-    sanitizeValue(req.query);
+    req.query = sanitizeValue(req.query);
   }
   if (req.params) {
-    sanitizeValue(req.params);
+    req.params = sanitizeValue(req.params);
   }
 
   next();
@@ -51,6 +70,12 @@ const requestSizeLimit = (options = {}) => {
  */
 const ipBlacklist = new Set(); // 可扩展为从数据库或Redis加载
 
+/**
+ * 检查请求IP是否在黑名单中
+ * @param {import('express').Request} req - Express 请求对象
+ * @param {import('express').Response} res - Express 响应对象
+ * @param {import('express').NextFunction} next - 下一个中间件
+ */
 const checkIPBlacklist = (req, res, next) => {
   const clientIP = req.ip || req.connection.remoteAddress;
 
@@ -63,6 +88,13 @@ const checkIPBlacklist = (req, res, next) => {
 
 /**
  * 安全响应头中间件
+ */
+/**
+ * 安全响应头中间件
+ * 设置 X-Frame-Options, X-XSS-Protection, X-Content-Type-Options, Referrer-Policy
+ * @param {import('express').Request} req - Express 请求对象
+ * @param {import('express').Response} res - Express 响应对象
+ * @param {import('express').NextFunction} next - 下一个中间件
  */
 const securityHeaders = (req, res, next) => {
   // 防止点击劫持

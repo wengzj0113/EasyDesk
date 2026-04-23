@@ -46,6 +46,14 @@ export interface ElectronAPI {
   // 打印
   printPage: (options?: PrintOptions) => Promise<OperationResult>;
   printToPdf: (options?: PrintPdfOptions) => Promise<PrintPdfResult>;
+
+  // Shell 执行
+  shellExecute: (command: string) => Promise<ShellResult>;
+  onShellOutput: (callback: (data: ShellOutputData) => void) => void;
+
+  // 电源控制
+  powerAction: (action: PowerAction) => Promise<PowerActionResult>;
+  powerSupportedActions: () => Promise<SupportedPowerActions>;
 }
 
 export interface KeyboardData {
@@ -137,6 +145,34 @@ export interface PrintPdfResult {
   success: boolean;
   data?: string;
   error?: string;
+}
+
+// Shell 相关类型定义
+export interface ShellResult {
+  success: boolean;
+  output: string;
+  error: string;
+  exitCode: number;
+}
+
+export interface ShellOutputData {
+  output?: string;
+  error?: string;
+}
+
+// 电源控制相关类型定义
+export type PowerAction = 'shutdown' | 'restart' | 'lock' | 'sleep';
+
+export interface PowerActionResult {
+  success: boolean;
+  error?: string;
+}
+
+export interface SupportedPowerActions {
+  shutdown: boolean;
+  restart: boolean;
+  lock: boolean;
+  sleep: boolean;
 }
 
 // 全局window接口扩展

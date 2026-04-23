@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography, Switch, Alert } from 'antd';
+import { Button, message, Space, Tooltip, Spin, Select, Card, Modal, Typography, Switch } from 'antd';
 import {
   FullscreenOutlined,
   FullscreenExitOutlined,
@@ -12,25 +12,23 @@ import {
   PrinterOutlined,
   ReloadOutlined,
   HeartOutlined,
+  ConsoleSqlOutlined,
+  PoweroffOutlined,
 } from '@ant-design/icons';
 import socketService from '../services/socketService';
 import FileTransfer from './FileTransfer';
 import RemoteFileManager from './RemoteFileManager';
 import ScreenshotPreview from './ScreenshotPreview';
+import ClipboardPanel from './ClipboardPanel';
 import ClipboardSync from './ClipboardSync';
+import ShellTerminal from './ShellTerminal';
+import PowerControl from './PowerControl';
 import QualityIndicator, { getQualityFromLatency } from './QualityIndicator';
 import { useStore, type NetworkQuality } from '../store/useStore';
+import { createLogger } from '../utils/logger';
 
 const { Text } = Typography;
-
-// 是否为开发环境
-const isDev = process.env.NODE_ENV === 'development';
-const devLog = (...args: unknown[]) => {
-  if (isDev) console.log('[RemoteDesktop]', ...args);
-};
-const devError = (...args: unknown[]) => {
-  if (isDev) console.error('[RemoteDesktop]', ...args);
-};
+const logger = createLogger('RemoteDesktop');
 
 interface RemoteDesktopProps {
   connectionId: string;
@@ -42,7 +40,14 @@ interface RemoteDesktopProps {
   targetDeviceName?: string;
 }
 
-// 默认 ICE 配置
+// Incoming connection request data
+interface IncomingRequestData {
+  fromDeviceCode: string;
+  password?: string;
+  timestamp?: number;
+}
+
+// Default ICE configuration
 const DEFAULT_ICE_CONFIG: RTCConfiguration = {
   iceServers: [
     { urls: 'stun:stun.l.google.com:19302' },
@@ -50,13 +55,69 @@ const DEFAULT_ICE_CONFIG: RTCConfiguration = {
   ]
 };
 
-// 重连配置
+// Reconnection configuration
 const RECONNECT_CONFIG = {
   maxAttempts: 5,
-  baseDelay: 1000,      // 1秒
-  maxDelay: 30000,       // 30秒
+  baseDelay: 1000,      // 1 second
+  maxDelay: 30000,       // 30 seconds
   multiplier: 2,
 };
+
+// Stats monitoring interval (ms)
+const STATS_INTERVAL_MS = 2000;
+
+// Control command data from socket
+interface MouseMoveData {
+  x: number;
+  y: number;
+}
+
+interface MouseClickData {
+  x: number;
+  y: number;
+  button: number;
+}
+
+interface KeyData {
+  key: string;
+  code: string;
+  ctrlKey?: boolean;
+  altKey?: boolean;
+  shiftKey?: boolean;
+}
+
+interface ControlCommandData {
+  type: string;
+  data?: MouseMoveData | MouseClickData | KeyData | unknown;
+}
+
+// Data channel message types
+interface DataMessageFileStart {
+  type: 'file-start';
+  uid: string;
+  name: string;
+  totalChunks: number;
+}
+
+interface DataMessageFileChunk {
+  type: 'file-chunk';
+  uid: string;
+  index: number;
+  data: string;
+}
+
+interface DataMessageFileEnd {
+  type: 'file-end';
+  uid: string;
+}
+
+interface DataMessageClipboard {
+  type: 'clipboard-sync';
+  subtype: 'text';
+  data: string;
+}
+
+type DataMessage = DataMessageFileStart | DataMessageFileChunk | DataMessageFileEnd | DataMessageClipboard | ControlCommandData;
 
 const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   connectionId,
@@ -93,15 +154,38 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   const [audioEnabled, setAudioEnabled] = useState(false);
   const [showSourceSelect, setShowSourceSelect] = useState(false);
   const [isElectron, setIsElectron] = useState(false);
-  const [incomingRequest, setIncomingRequest] = useState<any>(null);
+  const [incomingRequest, setIncomingRequest] = useState<IncomingRequestData | null>(null);
   const [fileTransferVisible, setFileTransferVisible] = useState(false);
   const [fileManagerVisible, setFileManagerVisible] = useState(false);
   const [screenshotVisible, setScreenshotVisible] = useState(false);
   const [clipboardVisible, setClipboardVisible] = useState(false);
+  const [showClipboardPanel, setShowClipboardPanel] = useState(false);
+  const [shellTerminalVisible, setShellTerminalVisible] = useState(false);
+  const [showPowerControl, setShowPowerControl] = useState(false);
   const [networkQuality, setLocalQuality] = useState<NetworkQuality>({
     latency: 0, fps: 0, packetLoss: 0, bandwidth: 0, quality: 'good'
   });
   const [disconnectReason, setDisconnectReason] = useState<string>('');
+
+  // Responsive state
+  const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  // Visibility-based stats: pause stats when tab is hidden
+  const [isVisible, setIsVisible] = useState(!document.hidden);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsVisible(!document.hidden);
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, []);
 
   // 远程打印
   const handleRemotePrint = useCallback(async () => {
@@ -131,6 +215,9 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
 
     statsIntervalRef.current = setInterval(async () => {
+      // Don't run stats when tab is hidden
+      if (!isVisible) return;
+
       const pc = peerConnectionRef.current;
       if (!pc || pc.connectionState !== 'connected') return;
 
@@ -174,8 +261,8 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       } catch {
         // stats 获取失败，忽略
       }
-    }, 2000);
-  }, [setNetworkQuality]);
+    }, STATS_INTERVAL_MS);
+  }, [isVisible, setNetworkQuality]);
 
   const stopStatsMonitoring = useCallback(() => {
     if (statsIntervalRef.current) {
@@ -200,7 +287,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     isReconnectingRef.current = true;
     reconnectAttemptsRef.current += 1;
 
-    devLog(`自动重连中... 第${reconnectAttemptsRef.current}次, ${delay}ms后重试`);
+    logger.debug(`自动重连中... 第${reconnectAttemptsRef.current}次, ${delay}ms后重试`);
     setDisconnectReason(`连接中断（${reason}），${Math.round(delay/1000)}秒后自动重连...`);
 
     reconnectTimerRef.current = setTimeout(() => {
@@ -247,78 +334,149 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
   useEffect(() => {
     socketService.connect();
 
-    socketService.on('registered', () => {
-      devLog('Device registered');
+    // 定义所有事件处理器，便于统一清理
+    const handleRegistered = () => {
+      logger.debug('Device registered');
       if (role === 'controller' && targetDeviceCode) {
         socketService.requestConnect(targetDeviceCode, password);
       }
-    });
+    };
 
-    socketService.on('incoming-connection', (data) => {
-      devLog('Incoming connection request:', data);
+    const handleIncomingConnection = (data: IncomingRequestData) => {
+      logger.debug('Incoming connection request:', data);
       setIncomingRequest(data);
-    });
+    };
 
-    socketService.on('connection-accepted', async (data: any) => {
-      devLog('Connection accepted, preparing WebRTC...');
+    const handleConnectionAccepted = async (data: { fromDeviceCode?: string; iceServers?: RTCConfiguration }) => {
+      logger.debug('Connection accepted, preparing WebRTC...');
       if (data.iceServers) iceConfigRef.current = data.iceServers;
       if (role === 'controller') {
         if (data.fromDeviceCode) setRemoteDeviceCode(data.fromDeviceCode);
         await startAsController();
       }
-    });
+    };
 
-    socketService.on('prepare-sdp', (data: any) => {
-      devLog('Prepare SDP, ICE config received');
+    const handlePrepareSDP = (data: { iceServers?: RTCConfiguration }) => {
+      logger.debug('Prepare SDP, ICE config received');
       if (data.iceServers) iceConfigRef.current = data.iceServers;
-    });
+    };
 
-    socketService.on('connection-rejected', (data: any) => {
+    const handleConnectionRejected = (data: { reason?: string }) => {
       message.error('连接被拒绝: ' + data.reason);
       setConnecting(false);
       setError('对方拒绝了连接请求');
-    });
+    };
 
-    socketService.on('sdp-offer', async (data: any) => {
-      devLog('Received SDP offer from:', data.fromDeviceCode);
+    const handleSocketSDPOffer = async (data: { sdp: RTCSessionDescriptionInit; fromDeviceCode: string }) => {
+      logger.debug('Received SDP offer from:', data.fromDeviceCode);
       if (role === 'controlled') {
         await handleSDPOffer(data.sdp, data.fromDeviceCode);
       }
-    });
+    };
 
-    socketService.on('sdp-answer', async (data: any) => {
-      devLog('Received SDP answer');
+    const handleSDPAnswer = async (data: { sdp: RTCSessionDescriptionInit }) => {
+      logger.debug('Received SDP answer');
       if (peerConnectionRef.current) {
         const answer = new RTCSessionDescription(data.sdp);
         await peerConnectionRef.current.setRemoteDescription(answer);
       }
-    });
+    };
 
-    socketService.on('ice-candidate', async (data: any) => {
-      devLog('Received ICE candidate');
+    const handleICECandidate = async (data: { candidate: RTCIceCandidateInit }) => {
+      logger.debug('Received ICE candidate');
       if (peerConnectionRef.current) {
         await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(data.candidate));
       }
-    });
+    };
 
-    socketService.on('control-command', (data: any) => {
+    const handleSocketControlCommand = (data: ControlCommandData) => {
       handleControlCommand(data);
-    });
+    };
 
-    socketService.on('error', (data: any) => {
+    // Constants for shell command validation
+const MAX_COMMAND_LENGTH = 2000;
+
+// Basic command validation to prevent injection
+const isValidCommand = (command: string): boolean => {
+  if (!command || command.length === 0) return false;
+  if (command.length > MAX_COMMAND_LENGTH) return false;
+  // Basic pattern check - allow alphanumeric, spaces, and common shell characters
+  const validPattern = /^[\w\s.,;:|\-=<>/\\'"$(){}[\]]+$/;
+  return validPattern.test(command);
+};
+
+// Shell command data from socket
+interface ShellCommandData {
+  command: string;
+  sessionId: string;
+  fromDeviceCode: string;
+}
+
+const handleShellCommand = async (data: ShellCommandData) => {
+      logger.debug('Received shell command:', data.command);
+
+      // Validate command before execution
+      if (!isValidCommand(data.command)) {
+        logger.warn('Invalid shell command detected, rejecting');
+        socketService.respondShell(data.fromDeviceCode, data.sessionId, '', '无效的命令格式', 1);
+        return;
+      }
+
+      // 检查是否是 Electron 环境
+      if (!window.electronAPI) {
+        logger.warn('Shell command requires Electron environment');
+        socketService.respondShell(data.fromDeviceCode, data.sessionId, '', 'Shell 功能仅在桌面客户端中可用', 1);
+        return;
+      }
+
+      try {
+        // 执行 Shell 命令
+        const result = await window.electronAPI.shellExecute(data.command);
+
+        // 发送响应
+        socketService.respondShell(
+          data.fromDeviceCode,
+          data.sessionId,
+          result.output || '',
+          result.error || '',
+          result.exitCode ?? 0
+        );
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : '未知错误';
+        logger.error('Shell execution failed:', errMsg);
+        socketService.respondShell(data.fromDeviceCode, data.sessionId, '', `执行失败: ${errMsg}`, 1);
+      }
+    };
+
+    const handleSocketError = (data: { message: string }) => {
       message.error('错误: ' + data.message);
       setError(data.message);
-    });
+    };
+
+    // 注册所有事件监听
+    socketService.on('registered', handleRegistered);
+    socketService.on('incoming-connection', handleIncomingConnection);
+    socketService.on('connection-accepted', handleConnectionAccepted);
+    socketService.on('prepare-sdp', handlePrepareSDP);
+    socketService.on('connection-rejected', handleConnectionRejected);
+    socketService.on('sdp-offer', handleSocketSDPOffer);
+    socketService.on('sdp-answer', handleSDPAnswer);
+    socketService.on('ice-candidate', handleICECandidate);
+    socketService.on('control-command', handleSocketControlCommand);
+    socketService.on('shell-command', handleShellCommand);
+    socketService.on('error', handleSocketError);
 
     // 注册设备
     const registerTimer = setTimeout(() => {
       socketService.register(deviceCode, password, role);
     }, 1000);
 
+    // 清理函数：取消所有监听器，防止内存泄漏
     return () => {
       clearTimeout(registerTimer);
       cancelReconnect();
       stopStatsMonitoring();
+      socketService.off();
       socketService.disconnect();
       cleanup();
     };
@@ -345,8 +503,84 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     }
   }, [incomingRequest, role]);
 
+  // ========== 被控端：处理电源控制命令 ==========
+  useEffect(() => {
+    if (role !== 'controlled') return;
+
+    const handlePowerAction = async (data: {
+      action: 'shutdown' | 'restart' | 'lock' | 'sleep';
+      confirmCode: string;
+      fromDeviceCode: string;
+    }) => {
+      const actionLabels: Record<string, string> = {
+        shutdown: '关机',
+        restart: '重启',
+        lock: '锁定',
+        sleep: '睡眠',
+      };
+      const label = actionLabels[data.action] || data.action;
+
+      Modal.confirm({
+        title: `远程${label}请求`,
+        content: (
+          <div>
+            <p>设备 {data.fromDeviceCode} 请求执行"{label}"操作</p>
+            <p style={{ fontFamily: 'monospace', fontSize: 16, fontWeight: 'bold', margin: '8px 0' }}>
+              确认码: {data.confirmCode}
+            </p>
+            <p style={{ fontSize: 12, color: '#888' }}>
+              请确认此代码是否与控制端显示一致
+            </p>
+          </div>
+        ),
+        okText: '确认执行',
+        cancelText: '取消',
+        okButtonProps: { danger: data.action === 'shutdown' || data.action === 'restart' },
+        onOk: async () => {
+          if (window.electronAPI) {
+            const result = await window.electronAPI.powerAction(data.action);
+            socketService.sendPowerConfirmed(
+              data.fromDeviceCode,
+              data.action,
+              result.success,
+              result.error
+            );
+            if (result.success) {
+              message.success(`${label}命令已执行`);
+            } else {
+              message.error(result.error || `${label}失败`);
+            }
+          } else {
+            // 非 Electron 环境
+            socketService.sendPowerConfirmed(
+              data.fromDeviceCode,
+              data.action,
+              false,
+              '此功能仅在桌面客户端中可用'
+            );
+            message.error('此功能仅在桌面客户端中可用');
+          }
+        },
+        onCancel: () => {
+          socketService.sendPowerConfirmed(
+            data.fromDeviceCode,
+            data.action,
+            false,
+            '用户取消'
+          );
+        },
+      });
+    };
+
+    socketService.on('power-action', handlePowerAction as (data: unknown) => void);
+
+    return () => {
+      socketService.off('power-action', handlePowerAction as (data: unknown) => void);
+    };
+  }, [role]);
+
   // ========== 清理函数 ==========
-  const cleanup = () => {
+  const cleanup = useCallback(() => {
     stopStatsMonitoring();
     if (peerConnectionRef.current) {
       peerConnectionRef.current.close();
@@ -356,11 +590,11 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     if (stream) {
       stream.getTracks().forEach(track => track.stop());
     }
-  };
+  }, [stopStatsMonitoring]);
 
   // ========== ICE 连接状态处理 ==========
   const handleIceStateChange = useCallback((state: RTCIceConnectionState, isController: boolean) => {
-    devLog('ICE connection state:', state);
+    logger.debug('ICE connection state:', state);
     switch (state) {
       case 'connected':
         setConnecting(false);
@@ -370,12 +604,12 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         break;
       case 'disconnected':
         // 网络临时中断，尝试自动恢复
-        devLog('ICE disconnected, attempting recovery...');
+        logger.debug('ICE disconnected, attempting recovery...');
         setConnected(false);
         scheduleReconnect('网络临时中断');
         break;
       case 'failed':
-        devLog('ICE failed, attempting ICE restart...');
+        logger.debug('ICE failed, attempting ICE restart...');
         setConnected(false);
         // 尝试 ICE 重启
         attemptIceRestart(isController);
@@ -385,7 +619,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         setConnecting(false);
         break;
     }
-  }, [handleConnectionEstablished, scheduleReconnect]);
+  }, [handleConnectionEstablished, scheduleReconnect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ICE 重启
   const attemptIceRestart = useCallback(async (isController: boolean) => {
@@ -396,13 +630,13 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     }
 
     try {
-      devLog('Restarting ICE...');
+      logger.debug('Restarting ICE...');
       const offer = await pc.createOffer({ iceRestart: true });
       await pc.setLocalDescription(offer);
       socketService.sendSDPOffer(remoteDeviceCode, offer);
-      devLog('ICE restart offer sent');
+      logger.debug('ICE restart offer sent');
     } catch (err) {
-      devError('ICE restart failed:', err);
+      logger.error('ICE restart failed:', err);
       scheduleReconnect('ICE重启失败');
     }
   }, [remoteDeviceCode, scheduleReconnect]);
@@ -424,7 +658,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
           const data = JSON.parse(event.data);
           handleDataMessage(data);
         } catch (e) {
-          devError('解析消息失败:', e);
+          logger.error('解析消息失败:', e);
         }
       };
 
@@ -443,15 +677,16 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       await pc.setLocalDescription(offer);
       socketService.sendSDPOffer(remoteDeviceCode, offer);
 
-    } catch (err: any) {
-      devError('启动控制失败:', err);
-      setError('启动控制失败: ' + err.message);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : '未知错误';
+      logger.error('启动控制失败:', errMsg);
+      setError('启动控制失败: ' + errMsg);
       setConnecting(false);
     }
   };
 
   // ========== 作为被控端处理 SDP offer ==========
-  const handleSDPOffer = async (sdp: any, fromCode: string) => {
+  const handleSDPOffer = async (sdp: RTCSessionDescriptionInit, fromCode: string) => {
     try {
       setConnecting(true);
       setRemoteDeviceCode(fromCode);
@@ -467,7 +702,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
             const data = JSON.parse(e.data);
             handleDataMessage(data);
           } catch (err) {
-            devError('解析消息失败:', err);
+            logger.error('解析消息失败:', err);
           }
         };
       };
@@ -489,9 +724,10 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
 
       await startScreenShare();
 
-    } catch (err: any) {
-      devError('处理 SDP offer 失败:', err);
-      setError('连接失败: ' + err.message);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : '未知错误';
+      logger.error('处理 SDP offer 失败:', errMsg);
+      setError('连接失败: ' + errMsg);
       setConnecting(false);
     }
   };
@@ -521,9 +757,10 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         };
         setConnected(true);
         setConnecting(false);
-      } catch (err: any) {
-        devError('获取屏幕失败:', err);
-        setError('无法获取屏幕: ' + err.message);
+      } catch (err: unknown) {
+        const errMsg = err instanceof Error ? err.message : '未知错误';
+        logger.error('获取屏幕失败:', errMsg);
+        setError('无法获取屏幕: ' + errMsg);
         setConnecting(false);
       }
     }
@@ -535,10 +772,11 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       let stream: MediaStream;
 
       if (window.electronAPI && selectedSource) {
-        stream = await navigator.mediaDevices.getUserMedia({
+        // Electron-specific getUserMedia constraints for screen capture
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const electronConstraints = {
           audio: audioEnabled,
           video: {
-            // @ts-ignore
             mandatory: {
               chromeMediaSource: 'desktop',
               chromeMediaSourceId: selectedSource,
@@ -548,7 +786,8 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
               maxHeight: 1080
             }
           }
-        } as any);
+        } as any;
+        stream = await navigator.mediaDevices.getUserMedia(electronConstraints);
       } else {
         stream = await navigator.mediaDevices.getDisplayMedia({
           video: { width: { ideal: 1920 }, height: { ideal: 1080 } },
@@ -575,50 +814,58 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       setConnected(true);
       message.success('屏幕共享已启动');
 
-    } catch (err: any) {
-      devError('屏幕共享失败:', err);
-      setError('无法启动屏幕共享: ' + err.message);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : '未知错误';
+      logger.error('屏幕共享失败:', errMsg);
+      setError('无法启动屏幕共享: ' + errMsg);
       setConnecting(false);
     }
   }, [selectedSource, audioEnabled]);
 
-  // 发送控制指令
-  const sendControlCommand = useCallback((type: string, data: any) => {
+  // Send control command
+  const sendControlCommand = useCallback((type: string, data: unknown) => {
     if (dataChannelRef.current && dataChannelRef.current.readyState === 'open') {
       dataChannelRef.current.send(JSON.stringify({ type, data }));
     }
   }, []);
 
-  // 处理控制指令
-  const handleControlCommand = useCallback((data: any) => {
-    devLog('Processing control command:', data);
+  // Handle control command
+  const handleControlCommand = useCallback((data: ControlCommandData) => {
+    logger.debug('Processing control command:', data);
     if (window.electronAPI) {
       if (data.type === 'mouseMove') {
-        window.electronAPI.sendRemoteMouseMove?.(data.data);
+        window.electronAPI.sendRemoteMouseMove?.(data.data as MouseMoveData);
       } else if (data.type === 'mouseClick') {
-        window.electronAPI.sendRemoteMouseClick?.(data.data);
+        window.electronAPI.sendRemoteMouseClick?.(data.data as MouseClickData);
       } else if (data.type === 'keyDown' || data.type === 'keyUp') {
-        window.electronAPI.sendRemoteKeyboard?.(data);
+        const keyboardData = {
+          type: data.type as 'keyDown' | 'keyUp',
+          ...(data.data as KeyData)
+        };
+        window.electronAPI.sendRemoteKeyboard?.(keyboardData);
       }
     }
   }, []);
 
-  // 处理 DataChannel 消息
-  const handleDataMessage = useCallback((data: any) => {
+  // Handle DataChannel message
+  const handleDataMessage = useCallback((data: DataMessage) => {
     if (data.type === 'file-start') {
-      receivingFilesRef.current.set(data.uid, {
-        name: data.name,
-        totalChunks: data.totalChunks,
-        chunks: new Array(data.totalChunks)
+      const fileStartData = data as DataMessageFileStart;
+      receivingFilesRef.current.set(fileStartData.uid, {
+        name: fileStartData.name,
+        totalChunks: fileStartData.totalChunks,
+        chunks: new Array(fileStartData.totalChunks)
       });
-      message.info(`正在接收文件: ${data.name}`);
+      message.info(`正在接收文件: ${fileStartData.name}`);
     } else if (data.type === 'file-chunk') {
-      const fileData = receivingFilesRef.current.get(data.uid);
-      if (fileData) fileData.chunks[data.index] = data.data;
+      const chunkData = data as DataMessageFileChunk;
+      const fileData = receivingFilesRef.current.get(chunkData.uid);
+      if (fileData) fileData.chunks[chunkData.index] = chunkData.data;
     } else if (data.type === 'file-end') {
-      const fileData = receivingFilesRef.current.get(data.uid);
+      const endData = data as DataMessageFileEnd;
+      const fileData = receivingFilesRef.current.get(endData.uid);
       if (fileData) {
-        receivingFilesRef.current.delete(data.uid);
+        receivingFilesRef.current.delete(endData.uid);
         try {
           const binary = atob(fileData.chunks.join(''));
           const bytes = new Uint8Array(binary.length);
@@ -637,16 +884,17 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         }
       }
     } else if (data.type === 'clipboard-sync') {
-      if (data.subtype === 'text' && data.data) {
+      const clipboardData = data as DataMessageClipboard;
+      if (clipboardData.subtype === 'text' && clipboardData.data) {
         if (window.electronAPI) {
-          window.electronAPI.clipboardWriteText(data.data);
+          window.electronAPI.clipboardWriteText(clipboardData.data);
         } else {
-          navigator.clipboard.writeText(data.data);
+          navigator.clipboard.writeText(clipboardData.data);
         }
         message.info('剪贴板已从远程设备同步');
       }
     } else {
-      handleControlCommand(data);
+      handleControlCommand(data as ControlCommandData);
     }
   }, [handleControlCommand]);
 
@@ -698,8 +946,8 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     });
   }, [connected, role, sendControlCommand]);
 
-  // 切换全屏
-  const handleToggleFullscreen = () => {
+  // Toggle fullscreen - wrapped in useCallback to fix exhaustive-deps warning
+  const handleToggleFullscreen = useCallback(() => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen();
       setIsFullscreen(true);
@@ -707,9 +955,9 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       document.exitFullscreen();
       setIsFullscreen(false);
     }
-  };
+  }, []);
 
-  // 手动重连
+  // Manual reconnect
   const handleManualReconnect = () => {
     cancelReconnect();
     reconnectAttemptsRef.current = 0;
@@ -724,8 +972,8 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
     }
   };
 
-  // 断开连接
-  const handleDisconnect = () => {
+  // Disconnect - wrapped in useCallback to fix exhaustive-deps warning
+  const handleDisconnect = useCallback(() => {
     cancelReconnect();
     cleanup();
     // 记录历史
@@ -741,7 +989,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       });
     }
     onDisconnect();
-  };
+  }, [addConnectionHistory, cancelReconnect, cleanup, onDisconnect, targetDeviceCode, targetDeviceName]);
 
   // 保存当前连接
   const handleSaveConnection = () => {
@@ -762,6 +1010,37 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
       loadSources();
     }
   }, [role, loadSources]);
+
+  // ========== 键盘快捷键 ==========
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Escape to disconnect (with confirmation)
+      if (e.key === 'Escape' && connected) {
+        Modal.confirm({
+          title: '确定断开连接？',
+          content: '确定要断开当前远程连接吗？',
+          okText: '确定断开',
+          cancelText: '取消',
+          onOk: () => handleDisconnect(),
+        });
+      }
+
+      // F11 for fullscreen
+      if (e.key === 'F11') {
+        e.preventDefault();
+        handleToggleFullscreen();
+      }
+
+      // Ctrl+Shift+F for fullscreen (alternative)
+      if (e.ctrlKey && e.shiftKey && e.key === 'F') {
+        e.preventDefault();
+        handleToggleFullscreen();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [connected, handleDisconnect, handleToggleFullscreen]);
 
   // 错误/断开状态 UI
   if (error || disconnectReason) {
@@ -831,6 +1110,8 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         display: 'flex',
         flexDirection: 'column'
       }}
+      role="application"
+      aria-label="远程桌面连接"
       tabIndex={0}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
@@ -856,6 +1137,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
               ref={remoteVideoRef}
               autoPlay
               playsInline
+              aria-label="远程桌面画面"
               style={{
                 maxWidth: '100%',
                 maxHeight: '100%',
@@ -884,14 +1166,14 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
 
       {/* 控制栏 */}
       <div style={{
-        height: '60px',
+        height: isMobile ? '48px' : '60px',
         background: 'rgba(0,0,0,0.8)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        padding: '0 20px'
+        padding: isMobile ? '0 8px' : '0 20px'
       }}>
-        <Space size="middle">
+        <Space size={isMobile ? 'small' : 'middle'}>
           {role === 'controlled' && isElectron && (
             <Select
               style={{ width: 200 }}
@@ -919,6 +1201,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
               icon={isFullscreen ? <FullscreenExitOutlined /> : <FullscreenOutlined />}
               onClick={handleToggleFullscreen}
               style={{ color: '#fff' }}
+              aria-label={isFullscreen ? '退出全屏' : '全屏'}
             />
           </Tooltip>
 
@@ -952,6 +1235,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
                 icon={<HeartOutlined />}
                 onClick={handleSaveConnection}
                 style={{ color: '#faad14' }}
+                aria-label="保存到收藏"
               />
             </Tooltip>
           )}
@@ -963,6 +1247,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
                 icon={<FolderOpenOutlined />}
                 onClick={() => setFileTransferVisible(true)}
                 style={{ color: '#fff' }}
+                aria-label="文件传输"
               />
             </Tooltip>
           )}
@@ -974,6 +1259,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
                 icon={<FileSearchOutlined />}
                 onClick={() => setFileManagerVisible(true)}
                 style={{ color: '#fff' }}
+                aria-label="文件管理"
               />
             </Tooltip>
           )}
@@ -985,17 +1271,19 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
                 icon={<CameraOutlined />}
                 onClick={() => setScreenshotVisible(true)}
                 style={{ color: '#fff' }}
+                aria-label="截图"
               />
             </Tooltip>
           )}
 
-          {connected && isElectron && (
-            <Tooltip title="剪贴板">
+          {connected && (
+            <Tooltip title="剪贴板历史">
               <Button
                 type="text"
                 icon={<CopyOutlined />}
-                onClick={() => setClipboardVisible(true)}
-                style={{ color: '#fff' }}
+                onClick={() => setShowClipboardPanel(!showClipboardPanel)}
+                style={{ color: showClipboardPanel ? '#1890ff' : '#fff' }}
+                aria-label="剪贴板历史"
               />
             </Tooltip>
           )}
@@ -1007,6 +1295,31 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
                 icon={<PrinterOutlined />}
                 onClick={handleRemotePrint}
                 style={{ color: '#fff' }}
+                aria-label="打印"
+              />
+            </Tooltip>
+          )}
+
+          {connected && (
+            <Tooltip title="远程Shell">
+              <Button
+                type="text"
+                icon={<ConsoleSqlOutlined />}
+                onClick={() => setShellTerminalVisible(!shellTerminalVisible)}
+                style={{ color: shellTerminalVisible ? '#1890ff' : '#fff' }}
+                aria-label="远程Shell"
+              />
+            </Tooltip>
+          )}
+
+          {connected && isElectron && (
+            <Tooltip title="远程控制">
+              <Button
+                type="text"
+                icon={<PoweroffOutlined />}
+                onClick={() => setShowPowerControl(true)}
+                style={{ color: '#fff' }}
+                aria-label="远程控制"
               />
             </Tooltip>
           )}
@@ -1016,6 +1329,7 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
             danger
             icon={<PhoneOutlined style={{ transform: 'rotate(135deg)' }} />}
             onClick={handleDisconnect}
+            aria-label="断开连接"
           >
             断开
           </Button>
@@ -1097,6 +1411,69 @@ const RemoteDesktop: React.FC<RemoteDesktopProps> = ({
         dataChannel={dataChannelRef.current}
         isElectron={isElectron}
       />
+
+      {/* 剪贴板历史面板 */}
+      {showClipboardPanel && remoteDeviceCode && (
+        <div
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            bottom: isMobile ? 48 : 60,
+            width: 400,
+            zIndex: 1001,
+            background: '#fff',
+            boxShadow: '2px 0 8px rgba(0,0,0,0.15)',
+            display: 'flex',
+            alignItems: 'stretch',
+          }}
+        >
+          <ClipboardPanel
+            deviceCode={remoteDeviceCode}
+            visible={showClipboardPanel}
+            onClose={() => setShowClipboardPanel(false)}
+            isElectron={isElectron}
+          />
+        </div>
+      )}
+
+      {/* 远程Shell面板 */}
+      {shellTerminalVisible && remoteDeviceCode && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 0,
+            top: 0,
+            bottom: isMobile ? 48 : 60,
+            width: isMobile ? '100%' : 600,
+            zIndex: 1001,
+            background: '#fff',
+            boxShadow: '-2px 0 8px rgba(0,0,0,0.15)',
+          }}
+        >
+          <ShellTerminal
+            deviceCode={remoteDeviceCode}
+            visible={shellTerminalVisible}
+            onClose={() => setShellTerminalVisible(false)}
+          />
+        </div>
+      )}
+
+      {/* 远程控制弹窗 */}
+      <Modal
+        title="远程控制"
+        open={showPowerControl}
+        onCancel={() => setShowPowerControl(false)}
+        footer={null}
+        width={400}
+        destroyOnClose
+      >
+        <PowerControl
+          deviceCode={remoteDeviceCode}
+          visible={showPowerControl}
+          onClose={() => setShowPowerControl(false)}
+        />
+      </Modal>
     </div>
   );
 };

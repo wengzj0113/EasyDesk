@@ -1,3 +1,8 @@
+/**
+ * Socket.IO 服务模块
+ * 处理设备注册、心跳、WebRTC 信令等实时通信
+ */
+
 const jwt = require('jsonwebtoken');
 const config = require('../config');
 const Device = require('../models/Device');
@@ -6,7 +11,15 @@ const { logInfo, logWarn, logError } = require('../middleware/logger');
 // 存储在线设备
 const onlineDevices = new Map(); // deviceCode -> { socketId, role, userId, lastHeartbeat }
 
+// 剪贴板历史记录（每个设备码对应最多10条记录）
+const clipboardHistory = new Map(); // deviceCode -> [{ content, contentType, direction, timestamp }]
+
 // JWT 认证中间件（用于 WebSocket 连接验证）
+/**
+ * 验证 JWT token
+ * @param {string} token - JWT token
+ * @returns {object|null} 解码后的 payload 或 null
+ */
 function verifyJwtToken(token) {
   try {
     return jwt.verify(token, config.jwt.secret);
@@ -20,6 +33,10 @@ const HEARTBEAT_TIMEOUT = 60000; // 60秒无心跳认为离线
 const HEARTBEAT_INTERVAL = 30000; // 每30秒检查一次
 
 // 动态构建 ICE 服务器列表（每次连接时调用，以便运行中更新配置）
+/**
+ * 构建 WebRTC ICE 服务器配置
+ * @returns {{ iceServers: Array }}
+ */
 function buildIceServers() {
   const iceServers = [
     { urls: config.webrtc.stunServer },
@@ -38,7 +55,10 @@ function buildIceServers() {
   return { iceServers };
 }
 
-// 检查设备心跳超时
+/**
+ * 检查并清理心跳超时的设备
+ * @param {import('socket.io').Server} io - Socket.IO 服务器实例
+ */
 function checkHeartbeatTimeout(io) {
   const now = Date.now();
   const toRemove = [];
@@ -60,7 +80,12 @@ function checkHeartbeatTimeout(io) {
 // 存储待验证的临时认证 token（一次性使用）
 const pendingAuth = new Map(); // deviceCode -> { userId, token, expiresAt }
 
-// 生成临时认证 token
+/**
+ * 生成临时认证 token（用于设备注册）
+ * @param {string} deviceCode - 设备码
+ * @param {string} userId - 用户ID
+ * @returns {string} 临时 token
+ */
 function generateTempToken(deviceCode, userId) {
   const token = jwt.sign(
     { deviceCode, userId, purpose: 'device_auth' },
@@ -75,12 +100,32 @@ function generateTempToken(deviceCode, userId) {
   return token;
 }
 
-// 验证并消费临时 token
+/**
+ * 验证并消费临时 token（一次性）
+ * @param {string} deviceCode - 设备码
+ * @param {string} token - 临时 token
+ * @returns {string|null} 用户ID 或 null（验证失败）
+ */
 function consumeTempToken(deviceCode, token) {
   const pending = pendingAuth.get(deviceCode);
   if (!pending) return null;
 
   if (pending.token !== token || Date.now() > pending.expiresAt) {
+    pendingAuth.delete(deviceCode);
+    return null;
+  }
+
+  // 验证 token payload 中的 deviceCode 与请求中的 deviceCode 一致，防止跨设备攻击
+  let payload;
+  try {
+    payload = jwt.verify(token, config.jwt.secret);
+  } catch {
+    pendingAuth.delete(deviceCode);
+    return null;
+  }
+
+  if (payload.deviceCode !== deviceCode) {
+    logWarn('设备码不匹配，拒绝注册', { submitted: deviceCode, tokenDevice: payload.deviceCode });
     pendingAuth.delete(deviceCode);
     return null;
   }
@@ -100,7 +145,30 @@ setInterval(() => {
   }
 }, 60000);
 
+/**
+ * 初始化 Socket.IO 服务
+ * @param {import('socket.io').Server} io - Socket.IO 服务器实例
+ * @returns {import('socket.io').Server}
+ */
 function initializeSocketIO(io) {
+  /**
+   * 清理指定 socket 上的所有事件监听器
+   * 防止事件监听器堆积导致内存泄漏
+   * @param {import('socket.io').Socket} socket - Socket 实例
+   */
+  const cleanupSocketListeners = (socket) => {
+    const events = [
+      'request-auth', 'register', 'request-connect',
+      'accept-connection', 'reject-connection',
+      'sdp-offer', 'sdp-answer', 'ice-candidate',
+      'control-command', 'get-online-devices', 'heartbeat',
+      'shell-execute', 'shell-response',
+      'clipboard-change', 'clipboard-history', 'clipboard-clear',
+      'disconnect'
+    ];
+    events.forEach(event => socket.removeAllListeners(event));
+  };
+
   io.on('connection', (socket) => {
     logInfo('新的 WebSocket 连接', { socketId: socket.id });
 
@@ -205,7 +273,7 @@ function initializeSocketIO(io) {
 
     // 请求连接远程设备
     socket.on('request-connect', async (data) => {
-      const { targetDeviceCode, password, userId } = data;
+      const { targetDeviceCode, password, userId, controllerDeviceCode } = data;
 
       if (!socket.userId) {
         socket.emit('connect-failed', { error: '未认证，请先完成设备认证' });
@@ -231,14 +299,61 @@ function initializeSocketIO(io) {
       }
 
       try {
-        // 验证访问密码
-        const device = await Device.findOne({ deviceCode: targetDeviceCode });
-        if (!device) {
+        // 查找目标设备
+        const targetDevice = await Device.findOne({ deviceCode: targetDeviceCode });
+        if (!targetDevice) {
           socket.emit('connect-failed', { error: '设备不存在' });
           return;
         }
 
-        const isMatch = await device.compareAccessPassword(password || '');
+        // 检查无人值守访问设置
+        const unattended = targetDevice.unattendedAccess;
+        const isUnattendedEnabled = unattended?.enabled === true;
+        const isNotExpired = !unattended?.trustedUntil || new Date() < unattended.trustedUntil;
+        const isUnattendedMode = isUnattendedEnabled && isNotExpired;
+
+        // 检查控制器是否被允许
+        const controllerId = controllerDeviceCode || socket.deviceCode;
+        const isControllerAllowed = !unattended?.allowedControllers?.length ||
+          unattended.allowedControllers.includes(controllerId);
+
+        // 如果是无人值守模式且控制器被允许，直接建立连接
+        if (isUnattendedMode && isControllerAllowed) {
+          // 验证密码（如果需要）
+          if (unattended.requirePassword !== false) {
+            const isMatch = await targetDevice.compareAccessPassword(password || '');
+            if (!isMatch) {
+              socket.emit('connect-failed', { error: '访问密码错误' });
+              return;
+            }
+          }
+
+          logInfo('无人值守连接', { from: socket.deviceCode, to: targetDeviceCode, unattended: true });
+
+          // 通知目标设备有无人值守连接
+          io.to(target.socketId).emit('unattended-connect', {
+            fromDeviceCode: socket.deviceCode,
+            fromUserId: socket.userId,
+            unattended: true
+          });
+
+          // 直接通知发起端连接已接受（无人值守模式跳过确认）
+          socket.emit('connection-accepted', {
+            fromDeviceCode: targetDeviceCode,
+            iceServers: buildIceServers(),
+            unattended: true
+          });
+
+          socket.emit('prepare-sdp', {
+            targetDeviceCode,
+            iceServers: buildIceServers()
+          });
+
+          return;
+        }
+
+        // 普通模式：验证访问密码
+        const isMatch = await targetDevice.compareAccessPassword(password || '');
         if (!isMatch) {
           socket.emit('connect-failed', { error: '访问密码错误' });
           return;
@@ -246,7 +361,7 @@ function initializeSocketIO(io) {
 
         logInfo('收到连接请求', { from: socket.deviceCode, to: targetDeviceCode });
 
-        // 向目标设备发送连接请求
+        // 向目标设备发送连接请求（需要手动确认）
         io.to(target.socketId).emit('incoming-connection', {
           fromDeviceCode: socket.deviceCode,
           fromUserId: socket.userId
@@ -387,7 +502,230 @@ function initializeSocketIO(io) {
       }
     });
 
-    // 断开连接
+    // Shell命令执行
+    socket.on('shell-execute', (data) => {
+      const { deviceCode, command, sessionId } = data;
+
+      if (!deviceCode || !command || !sessionId) {
+        socket.emit('shell-error', {
+          sessionId,
+          error: '缺少必要参数'
+        });
+        return;
+      }
+
+      const target = onlineDevices.get(deviceCode);
+
+      if (!target) {
+        socket.emit('shell-error', {
+          sessionId,
+          error: '设备不在线'
+        });
+        return;
+      }
+
+      logInfo('Shell命令转发', { deviceCode, command: command.substring(0, 50), sessionId });
+
+      // 转发命令到目标设备
+      io.to(target.socketId).emit('shell-command', {
+        command,
+        sessionId,
+        fromDeviceCode: socket.deviceCode,
+        fromSocketId: socket.id,
+        timestamp: Date.now(),
+      });
+    });
+
+    // Shell响应处理
+    socket.on('shell-response', (data) => {
+      const { targetDeviceCode, sessionId, output, error, exitCode } = data;
+
+      if (!targetDeviceCode) {
+        logWarn('Shell响应缺少目标设备信息');
+        return;
+      }
+
+      const target = onlineDevices.get(targetDeviceCode);
+
+      if (target) {
+        io.to(target.socketId).emit('shell-result', {
+          sessionId,
+          output: output || '',
+          error: error || '',
+          exitCode: exitCode ?? 0,
+          timestamp: Date.now(),
+        });
+      }
+    });
+
+    // 剪贴板变化（存储到历史并转发）
+    socket.on('clipboard-change', async (data) => {
+      const { deviceCode, content, contentType = 'text', direction } = data;
+
+      if (!deviceCode || !content) {
+        return;
+      }
+
+      // 存储到历史记录
+      if (!clipboardHistory.has(deviceCode)) {
+        clipboardHistory.set(deviceCode, []);
+      }
+
+      const history = clipboardHistory.get(deviceCode);
+      history.push({
+        content,
+        contentType,
+        direction: direction || 'to',
+        timestamp: Date.now(),
+      });
+
+      // 保持最多10条记录
+      if (history.length > 10) {
+        history.shift();
+      }
+
+      // 转发剪贴板变化到对方设备
+      const target = onlineDevices.get(deviceCode);
+      if (target) {
+        io.to(target.socketId).emit('clipboard-sync', {
+          content,
+          contentType,
+          direction: direction || 'to',
+          fromDeviceCode: socket.deviceCode,
+        });
+      }
+
+      // 如果控制端也在线，也转发给它（双向同步）
+      for (const [code, info] of onlineDevices) {
+        if (code !== deviceCode && info.userId === socket.userId) {
+          io.to(info.socketId).emit('clipboard-sync', {
+            content,
+            contentType,
+            direction: direction || 'to',
+            fromDeviceCode: socket.deviceCode,
+          });
+        }
+      }
+    });
+
+    // 获取剪贴板历史
+    socket.on('clipboard-history', async (data) => {
+      const { deviceCode } = data;
+
+      if (!deviceCode) {
+        socket.emit('clipboard-history-response', { history: [] });
+        return;
+      }
+
+      const history = clipboardHistory.get(deviceCode) || [];
+      socket.emit('clipboard-history-response', { history });
+    });
+
+    // 清空剪贴板历史
+    socket.on('clipboard-clear', async (data) => {
+      const { deviceCode } = data;
+
+      if (!deviceCode) {
+        return;
+      }
+
+      clipboardHistory.delete(deviceCode);
+      socket.emit('clipboard-history-response', { history: [] });
+    });
+
+    // ========== 电源控制命令 ==========
+    // 有效电源操作类型
+    const VALID_POWER_ACTIONS = ['shutdown', 'restart', 'lock', 'sleep'];
+
+    /**
+     * 处理电源控制命令
+     * 将命令从控制端转发到被控端
+     */
+    socket.on('power-command', (data) => {
+      const { deviceCode, action, confirmCode } = data;
+
+      if (!socket.userId) {
+        socket.emit('power-error', { error: '未认证，请先完成设备认证' });
+        return;
+      }
+
+      if (!deviceCode || !action) {
+        socket.emit('power-error', { error: '缺少必要参数' });
+        return;
+      }
+
+      // 验证操作类型
+      if (!VALID_POWER_ACTIONS.includes(action)) {
+        socket.emit('power-error', { error: `不支持的电源操作: ${action}` });
+        return;
+      }
+
+      // 验证目标设备在线
+      const target = onlineDevices.get(deviceCode);
+      if (!target) {
+        socket.emit('power-error', { error: '目标设备不在线' });
+        return;
+      }
+
+      // 生成确认码（如果未提供）
+      const finalConfirmCode = confirmCode || Math.random().toString(36).substring(2, 8).toUpperCase();
+
+      // 审计日志
+      logInfo('电源控制命令', {
+        socketId: socket.id,
+        controllerDeviceCode: socket.deviceCode,
+        targetDeviceCode: deviceCode,
+        action,
+        timestamp: new Date().toISOString(),
+      });
+
+      // 转发电源命令到目标设备
+      io.to(target.socketId).emit('power-action', {
+        action,
+        confirmCode: finalConfirmCode,
+        fromDeviceCode: socket.deviceCode,
+        timestamp: Date.now(),
+      });
+
+      logInfo('电源命令已发送', { targetDeviceCode: deviceCode, action, confirmCode: finalConfirmCode });
+
+      // 确认命令已发送
+      socket.emit('power-command-sent', {
+        deviceCode,
+        action,
+        confirmCode: finalConfirmCode
+      });
+    });
+
+    /**
+     * 处理电源命令确认
+     * 从被控端接收确认结果并转发回控制端
+     */
+    socket.on('power-confirmed', (data) => {
+      const { targetDeviceId, action, success, error } = data;
+
+      if (!targetDeviceId || !action) {
+        return;
+      }
+
+      const target = onlineDevices.get(targetDeviceId);
+      if (target) {
+        io.to(target.socketId).emit('power-result', {
+          action,
+          success,
+          error,
+          timestamp: Date.now(),
+        });
+
+        logInfo('电源命令执行结果', {
+          targetDeviceCode: targetDeviceId,
+          action,
+          success
+        });
+      }
+    });
+
+    // 断开连接时清理监听器
     socket.on('disconnect', () => {
       if (socket.deviceCode) {
         const deviceInfo = onlineDevices.get(socket.deviceCode);
@@ -399,6 +737,8 @@ function initializeSocketIO(io) {
           io.emit('device-offline', { deviceCode: socket.deviceCode });
         }
       }
+      // 清理所有事件监听器，防止内存泄漏
+      cleanupSocketListeners(socket);
     });
   });
 

@@ -1,8 +1,72 @@
-import axios from 'axios';
+/**
+ * API 请求服务
+ * 提供带重试机制的 axios 封装，支持指数退避策略
+ */
+
+import axios, { AxiosError, AxiosRequestConfig } from 'axios';
 import { message } from 'antd';
 import { useStore } from '../store/useStore';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('API');
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001/api';
+
+/** 重试配置 */
+const RETRY_CONFIG = {
+  maxRetries: 3,          // 最大重试次数
+  baseDelay: 1000,         // 基础延迟（毫秒）
+  maxDelay: 10000,         // 最大延迟（毫秒）
+};
+
+/** 可重试的 HTTP 状态码 */
+const RETRYABLE_STATUS_CODES = [408, 429, 500, 502, 503, 504];
+
+/** 判断错误是否应该重试 */
+const isRetryableError = (error: AxiosError): boolean => {
+  // 网络错误（如超时、DNS 失败）应该重试
+  if (!error.response) {
+    return true;
+  }
+  // 检查状态码是否在可重试列表中
+  return RETRYABLE_STATUS_CODES.includes(error.response.status);
+};
+
+/** 计算指数退避延迟 */
+const calculateBackoffDelay = (retryCount: number): number => {
+  const delay = RETRY_CONFIG.baseDelay * Math.pow(2, retryCount);
+  return Math.min(delay, RETRY_CONFIG.maxDelay);
+};
+
+/** 带重试的请求执行器 */
+const executeWithRetry = async <T>(
+  requestFn: () => Promise<T>,
+  retries = RETRY_CONFIG.maxRetries
+): Promise<T> => {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      return await requestFn();
+    } catch (error) {
+      lastError = error as Error;
+
+      // 如果没有更多重试次数或不可重试，直接抛出错误
+      if (attempt === retries || !isRetryableError(error as AxiosError)) {
+        throw error;
+      }
+
+      // 计算并等待退避延迟
+      const delay = calculateBackoffDelay(attempt);
+      logger.warn(`请求失败，将在 ${delay}ms 后重试 (${attempt + 1}/${retries})`, lastError.message);
+
+      // 使用 Promise + setTimeout 实现延迟
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+};
 
 // 错误消息映射
 const errorMessages: Record<string, string> = {
@@ -44,14 +108,12 @@ api.interceptors.response.use(
     const errorMessage = error.response?.data?.error || error.message;
 
     // 记录错误日志
-    if (process.env.NODE_ENV === 'development') {
-      console.error('API Error:', {
-        url: error.config?.url,
-        method: error.config?.method,
-        status: statusCode,
-        message: errorMessage,
-      });
-    }
+    logger.error('API Error:', {
+      url: error.config?.url,
+      method: error.config?.method,
+      status: statusCode,
+      message: errorMessage,
+    });
 
     // 根据错误状态码显示用户友好的提示
     const userMessage = errorMessages[statusCode] ||
@@ -77,18 +139,42 @@ api.interceptors.response.use(
   }
 );
 
+/**
+ * 执行带重试的 API 请求
+ * @param config - axios 请求配置
+ * @param options - 重试选项
+ * @returns 响应数据
+ */
+export const requestWithRetry = async <T = unknown>(
+  config: AxiosRequestConfig,
+  options = { retries: RETRY_CONFIG.maxRetries }
+): Promise<T> => {
+  return executeWithRetry(() => api.request<T>(config).then(res => res.data), options.retries);
+};
+
 export const authAPI = {
   login: (data: { username: string; password: string }) => api.post('/auth/login', data),
   register: (data: { username: string; password: string; email: string }) => api.post('/auth/register', data),
   logout: () => api.post('/auth/logout'),
 };
 
+export interface UnattendedSettings {
+  enabled: boolean;
+  trustedUntil?: Date | null;
+  allowedControllers?: string[];
+  requirePassword: boolean;
+}
+
 export const deviceAPI = {
   getDeviceCode: () => api.get('/device/code'),
-  updatePassword: (data: { newPassword: string }) => api.post('/device/password', data),
+  updatePassword: (data: { newPassword: string; type?: string }) => api.post('/device/password', data),
   getMyDevices: () => api.get('/device/my-devices'),
   bindDevice: (data: { deviceCode: string; deviceName: string }) => api.post('/device/bind', data),
   unbindDevice: (deviceId: string) => api.delete(`/device/${deviceId}`),
+  updateUnattended: (deviceId: string, settings: UnattendedSettings) =>
+    api.post('/device/unattended', { deviceId, ...settings }),
+  getUnattendedSettings: (deviceId: string) =>
+    api.get(`/device/unattended/${deviceId}`),
 };
 
 export const connectionAPI = {

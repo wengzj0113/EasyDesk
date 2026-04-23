@@ -1,5 +1,5 @@
 import React from 'react';
-import { Card, Typography, Space, Divider } from 'antd';
+import { Card, Typography, Space, Divider, Empty, Button } from 'antd';
 import {
   FolderOpenOutlined,
   ApiOutlined,
@@ -7,6 +7,7 @@ import {
   ThunderboltOutlined,
 } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
+import PageHeader from '../components/PageHeader';
 
 const { Title, Text, Paragraph } = Typography;
 
@@ -15,12 +16,26 @@ const FileCenterPage: React.FC = () => {
 
   return (
     <div style={{ padding: '0 0 24px 0' }}>
-      <div style={{ marginBottom: 24 }}>
-        <Title level={3} style={{ margin: 0 }}>文件传输</Title>
-        <Text type="secondary">通过远程连接直接传输文件到对方设备</Text>
-      </div>
+      <PageHeader
+        title="文件传输"
+        subtitle="在已连接的设备间传输文件"
+      />
 
       {/* 功能说明 */}
+      <Card style={{ marginBottom: 16 }}>
+        <Empty
+          image={Empty.PRESENTED_IMAGE_SIMPLE}
+          description={
+            <Space direction="vertical">
+              <Text type="secondary">连接设备后可进行文件传输</Text>
+              <Button type="primary" onClick={() => navigate('/connection')}>
+                前往连接
+              </Button>
+            </Space>
+          }
+        />
+      </Card>
+
       <Card>
         <Space align="start" size={16}>
           <div style={{

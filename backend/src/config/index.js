@@ -17,9 +17,12 @@ module.exports = {
 
   // JWT配置
   jwt: {
-    secret: process.env.JWT_SECRET || (process.env.NODE_ENV === 'production'
-      ? (() => { throw new Error('JWT_SECRET is required in production'); })()
-      : 'dev-secret-key-do-not-use-in-production'),
+    secret: (() => {
+      if (!process.env.JWT_SECRET) {
+        throw new Error('JWT_SECRET environment variable is required');
+      }
+      return process.env.JWT_SECRET;
+    })(),
     expiresIn: process.env.JWT_EXPIRE || '7d',
   },
 

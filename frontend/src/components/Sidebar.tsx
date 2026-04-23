@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Layout, Menu, Typography } from 'antd';
 import {
   DesktopOutlined,
@@ -20,6 +20,21 @@ interface SidebarProps {
 const Sidebar: React.FC<SidebarProps> = ({ collapsed = false, onCollapse }) => {
   const navigate = useNavigate();
   const location = useLocation();
+
+  // Persist collapse state
+  const [localCollapsed, setLocalCollapsed] = useState(() => {
+    const saved = localStorage.getItem('sidebar-collapsed');
+    return saved ? JSON.parse(saved) : collapsed;
+  });
+
+  useEffect(() => {
+    localStorage.setItem('sidebar-collapsed', JSON.stringify(localCollapsed));
+  }, [localCollapsed]);
+
+  // Sync with parent prop changes
+  useEffect(() => {
+    setLocalCollapsed(collapsed);
+  }, [collapsed]);
 
   const menuItems = [
     {
@@ -51,8 +66,11 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed = false, onCollapse }) => {
   return (
     <Sider
       collapsible
-      collapsed={collapsed}
-      onCollapse={onCollapse}
+      collapsed={localCollapsed}
+      onCollapse={(value) => {
+        setLocalCollapsed(value);
+        onCollapse?.(value);
+      }}
       width={200}
       style={{
         background: '#001529',
@@ -70,8 +88,8 @@ const Sidebar: React.FC<SidebarProps> = ({ collapsed = false, onCollapse }) => {
           height: 64,
           display: 'flex',
           alignItems: 'center',
-          justifyContent: collapsed ? 'center' : 'flex-start',
-          padding: collapsed ? 0 : '0 20px',
+          justifyContent: localCollapsed ? 'center' : 'flex-start',
+          padding: localCollapsed ? 0 : '0 20px',
           borderBottom: '1px solid rgba(255,255,255,0.1)',
         }}
       >

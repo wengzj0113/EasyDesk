@@ -6,7 +6,14 @@ const { validateUsername, validateEmail, validatePassword } = require('../middle
 const { logError } = require('../middleware/logger');
 const config = require('../config');
 
-// 用户注册
+/**
+ * POST /api/auth/register
+ * 用户注册接口
+ * @param {string} username - 用户名（3-20字符，字母数字下划线）
+ * @param {string} email - 邮箱地址
+ * @param {string} password - 密码（6-20字符）
+ * @returns {object} { message, token, user }
+ */
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
@@ -61,7 +68,13 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// 用户登录
+/**
+ * POST /api/auth/login
+ * 用户登录接口
+ * @param {string} username - 用户名
+ * @param {string} password - 密码
+ * @returns {object} { message, token, user }
+ */
 router.post('/login', async (req, res) => {
   try {
     const { username, password } = req.body;
@@ -111,7 +124,11 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// 用户登出
+/**
+ * POST /api/auth/logout
+ * 用户登出接口（JWT无状态，客户端清除token即可）
+ * @returns {object} { message }
+ */
 router.post('/logout', (req, res) => {
   // JWT是无状态的，登出主要在客户端处理token清除
   res.json({ message: '登出成功' });

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Badge, Tooltip, Space, Typography } from 'antd';
+import { Tooltip, Space, Typography } from 'antd';
 import {
   WifiOutlined,
   ThunderboltOutlined,
@@ -48,7 +48,7 @@ const qualitySizes: Record<QualityIndicatorProps['quality'], number> = {
   poor: 2,
 };
 
-const QualityIndicator: React.FC<QualityIndicatorProps> = ({
+const QualityIndicator: React.FC<QualityIndicatorProps> = React.memo(({
   latency,
   fps,
   packetLoss,
@@ -135,6 +135,6 @@ const QualityIndicator: React.FC<QualityIndicatorProps> = ({
       </div>
     </Tooltip>
   );
-};
+});
 
 export default QualityIndicator;

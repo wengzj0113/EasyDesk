@@ -1,6 +1,13 @@
-// 输入验证和清理工具
+/**
+ * 输入验证和清理工具模块
+ * 提供统一的输入验证和清理函数，防止注入攻击
+ */
 
-// 验证用户名（3-20个字符，只能包含字母、数字、下划线）
+/**
+ * 验证用户名格式
+ * @param {string} username - 用户名
+ * @returns {{ valid: boolean, error?: string, normalized?: string }}
+ */
 const validateUsername = (username) => {
   if (!username || typeof username !== 'string') {
     return { valid: false, error: '用户名不能为空' };
@@ -14,7 +21,11 @@ const validateUsername = (username) => {
   return { valid: true };
 };
 
-// 验证邮箱
+/**
+ * 验证邮箱格式
+ * @param {string} email - 邮箱地址
+ * @returns {{ valid: boolean, error?: string }}
+ */
 const validateEmail = (email) => {
   if (!email || typeof email !== 'string') {
     return { valid: false, error: '邮箱不能为空' };
@@ -29,7 +40,11 @@ const validateEmail = (email) => {
   return { valid: true };
 };
 
-// 验证密码（至少6个字符）
+/**
+ * 验证密码强度
+ * @param {string} password - 密码
+ * @returns {{ valid: boolean, error?: string }}
+ */
 const validatePassword = (password) => {
   if (!password || typeof password !== 'string') {
     return { valid: false, error: '密码不能为空' };
@@ -43,7 +58,11 @@ const validatePassword = (password) => {
   return { valid: true };
 };
 
-// 验证设备码（9位数字）
+/**
+ * 验证设备码格式（9位数字）
+ * @param {string} deviceCode - 设备码
+ * @returns {{ valid: boolean, error?: string, normalized?: string }}
+ */
 const validateDeviceCode = (deviceCode) => {
   if (!deviceCode || typeof deviceCode !== 'string') {
     return { valid: false, error: '设备码不能为空' };
@@ -55,7 +74,11 @@ const validateDeviceCode = (deviceCode) => {
   return { valid: true, normalized };
 };
 
-// 验证连接密码（4-6位数字）
+/**
+ * 验证连接密码格式（4-6位数字）
+ * @param {string} password - 连接密码
+ * @returns {{ valid: boolean, error?: string }}
+ */
 const validateConnectionPassword = (password) => {
   if (!password || typeof password !== 'string') {
     return { valid: false, error: '密码不能为空' };
@@ -66,7 +89,11 @@ const validateConnectionPassword = (password) => {
   return { valid: true };
 };
 
-// 验证 MongoDB ObjectId
+/**
+ * 验证 MongoDB ObjectId 格式
+ * @param {string} id - ObjectId 字符串
+ * @returns {{ valid: boolean, error?: string }}
+ */
 const validateObjectId = (id) => {
   if (!id || typeof id !== 'string') {
     return { valid: false, error: 'ID不能为空' };
@@ -77,13 +104,24 @@ const validateObjectId = (id) => {
   return { valid: true };
 };
 
-// 清理字符串输入（去除首尾空格，限制长度）
+/**
+ * 清理字符串输入（去除首尾空格，限制长度）
+ * @param {string} str - 输入字符串
+ * @param {number} maxLength - 最大长度（默认255）
+ * @returns {string} 清理后的字符串
+ */
 const sanitizeString = (str, maxLength = 255) => {
   if (typeof str !== 'string') return '';
   return str.trim().substring(0, maxLength);
 };
 
-// 验证分页参数
+/**
+ * 验证分页参数
+ * @param {string|number} page - 页码
+ * @param {string|number} pageSize - 每页数量
+ * @param {number} maxPageSize - 最大每页数量（默认100）
+ * @returns {{ page: number, pageSize: number }}
+ */
 const validatePagination = (page, pageSize, maxPageSize = 100) => {
   const p = parseInt(page) || 1;
   const ps = Math.min(parseInt(pageSize) || 20, maxPageSize);

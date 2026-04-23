@@ -1,10 +1,12 @@
-import React, { useEffect, useState } from 'react';
-import { Card, Typography, Button, Table, Tag, Modal, Form, Input, Space, Popconfirm, message, Empty, Spin, Divider, Descriptions, QRCode, Radio } from 'antd';
-import { ArrowLeftOutlined, PlusOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, QrcodeOutlined, ReloadOutlined, LinkOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Card, Typography, Button, Table, Tag, Modal, Form, Input, Space, Popconfirm, message, Empty, Spin, Divider, Descriptions, QRCode, Radio, Tooltip, Switch, DatePicker } from 'antd';
+import { PlusOutlined, CopyOutlined, DeleteOutlined, DesktopOutlined, QrcodeOutlined, ReloadOutlined, LinkOutlined, SettingOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
-import { deviceAPI } from '../services/api';
+import dayjs from 'dayjs';
+import { deviceAPI, UnattendedSettings } from '../services/api';
+import PageHeader from '../components/PageHeader';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface Device {
   _id: string;
@@ -24,6 +26,19 @@ interface Device {
     boundAt: string;
   }>;
   lastSeen: string;
+  unattendedAccess?: {
+    enabled: boolean;
+    trustedUntil?: string | null;
+    allowedControllers?: string[];
+    requirePassword: boolean;
+  };
+}
+
+interface UnattendedSettingsForm {
+  enabled: boolean;
+  trustedUntil: dayjs.Dayjs | null;
+  requirePassword: boolean;
+  allowedControllers: string[];
 }
 
 const DeviceManagementPage: React.FC = () => {
@@ -33,24 +48,48 @@ const DeviceManagementPage: React.FC = () => {
   const [bindModalVisible, setBindModalVisible] = useState(false);
   const [passwordModalVisible, setPasswordModalVisible] = useState(false);
   const [qrModalVisible, setQrModalVisible] = useState(false);
+  const [unattendedModalVisible, setUnattendedModalVisible] = useState(false);
+  const [unattendedSettings, setUnattendedSettings] = useState<UnattendedSettingsForm>({
+    enabled: false,
+    trustedUntil: null,
+    requirePassword: true,
+    allowedControllers: [],
+  });
   const [bindForm] = Form.useForm();
   const [passwordForm] = Form.useForm();
+  const [unattendedForm] = Form.useForm();
 
-  useEffect(() => {
-    fetchMyDevice();
-  }, []);
-
-  const fetchMyDevice = async () => {
+  const fetchMyDevice = useCallback(async () => {
     setLoading(true);
     try {
       const res: any = await deviceAPI.getDeviceCode();
       setMyDevice(res);
-    } catch (error: any) {
-      message.error(error.response?.data?.error || '获取设备信息失败');
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : '获取设备信息失败';
+      message.error({
+        content: (
+          <Space>
+            <span>{errorMessage}</span>
+            <Button type="link" size="small" onClick={() => fetchMyDevice()}>
+              重试
+            </Button>
+          </Space>
+        ),
+        duration: 0,
+        key: 'device-load-error',
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    fetchMyDevice();
+  }, [fetchMyDevice]);
+
+  const loadDevices = useCallback(() => {
+    fetchMyDevice();
+  }, [fetchMyDevice]);
 
   const handleBindDevice = async (values: { deviceCode: string; deviceName: string }) => {
     try {
@@ -85,6 +124,37 @@ const DeviceManagementPage: React.FC = () => {
       passwordForm.resetFields();
     } catch (error: any) {
       message.error(error.response?.data?.error || '密码更新失败');
+    }
+  };
+
+  const handleOpenUnattendedModal = async () => {
+    if (myDevice) {
+      setUnattendedSettings({
+        enabled: myDevice.unattendedAccess?.enabled || false,
+        trustedUntil: myDevice.unattendedAccess?.trustedUntil
+          ? dayjs(myDevice.unattendedAccess.trustedUntil)
+          : null,
+        requirePassword: myDevice.unattendedAccess?.requirePassword !== false,
+        allowedControllers: myDevice.unattendedAccess?.allowedControllers || [],
+      });
+      setUnattendedModalVisible(true);
+    }
+  };
+
+  const handleSaveUnattendedSettings = async () => {
+    try {
+      const settings: UnattendedSettings = {
+        enabled: unattendedSettings.enabled,
+        trustedUntil: unattendedSettings.trustedUntil?.toDate() || null,
+        requirePassword: unattendedSettings.requirePassword,
+        allowedControllers: unattendedSettings.allowedControllers,
+      };
+      await deviceAPI.updateUnattended(myDevice!._id, settings);
+      message.success('无人值守访问设置已更新');
+      setUnattendedModalVisible(false);
+      fetchMyDevice();
+    } catch (error: any) {
+      message.error(error.response?.data?.error || '设置更新失败');
     }
   };
 
@@ -127,6 +197,7 @@ const DeviceManagementPage: React.FC = () => {
           <Button
             type="link"
             icon={<LinkOutlined />}
+            aria-label={`连接设备 ${record.deviceId?.deviceName || ''}`}
             onClick={() => navigate('/connection', {
               state: {
                 deviceCode: record.deviceId.deviceCode,
@@ -138,12 +209,19 @@ const DeviceManagementPage: React.FC = () => {
             连接
           </Button>
           <Popconfirm
-            title="确定解绑此设备吗？"
+            title="确定解绑此设备？"
+            description={
+              <Space direction="vertical">
+                <Text>设备名称: <Text strong>{record.deviceId?.deviceName || record.deviceName}</Text></Text>
+                <Text type="secondary">解绑后可以在连接页面重新绑定</Text>
+              </Space>
+            }
             onConfirm={() => handleUnbindDevice(record.deviceId._id)}
-            okText="确定"
+            okText="确定解绑"
             cancelText="取消"
+            okButtonProps={{ danger: true }}
           >
-            <Button type="link" danger icon={<DeleteOutlined />}>
+            <Button danger icon={<DeleteOutlined />} aria-label="解绑设备">
               解绑
             </Button>
           </Popconfirm>
@@ -161,16 +239,16 @@ const DeviceManagementPage: React.FC = () => {
   }
 
   return (
-    <div style={{ padding: '50px', maxWidth: 900, margin: '0 auto' }}>
-      <Button
-        icon={<ArrowLeftOutlined />}
-        onClick={() => navigate('/')}
-        style={{ marginBottom: '24px' }}
-      >
-        返回首页
-      </Button>
-
-      <Title level={3}>我的设备</Title>
+    <div style={{ padding: 'clamp(16px, 4vw, 50px)', maxWidth: 900, margin: '0 auto' }}>
+      <PageHeader
+        title="设备管理"
+        subtitle="管理已绑定的远程设备"
+        actions={
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setBindModalVisible(true)}>
+            绑定新设备
+          </Button>
+        }
+      />
 
       {/* 本机设备信息 */}
       <Card style={{ marginBottom: '24px' }} title={<><DesktopOutlined /> 本机设备信息</>}>
@@ -205,19 +283,39 @@ const DeviceManagementPage: React.FC = () => {
             <Divider />
 
             <Space>
-              <Button icon={<QrcodeOutlined />} onClick={() => setQrModalVisible(true)}>
-                显示二维码
-              </Button>
+              <Tooltip title="扫码可直接连接本设备">
+                <Button icon={<QrcodeOutlined />} onClick={() => setQrModalVisible(true)}>
+                  显示二维码
+                </Button>
+              </Tooltip>
               <Button icon={<ReloadOutlined />} onClick={() => fetchMyDevice()}>
                 刷新状态
               </Button>
               <Button icon={<CopyOutlined />} onClick={() => setPasswordModalVisible(true)}>
                 修改密码
               </Button>
+              <Button
+                icon={<SettingOutlined />}
+                onClick={handleOpenUnattendedModal}
+                type={myDevice?.unattendedAccess?.enabled ? 'primary' : 'default'}
+              >
+                无人值守
+                {myDevice?.unattendedAccess?.enabled && <Tag color="success" style={{ marginLeft: 8 }}>已开启</Tag>}
+              </Button>
             </Space>
           </>
         ) : (
-          <Empty description="无法获取设备信息" />
+          <Empty
+            image={Empty.PRESENTED_IMAGE_SIMPLE}
+            description={
+              <Space direction="vertical">
+                <Text type="secondary">无法获取设备信息</Text>
+                <Button type="link" onClick={loadDevices}>
+                  点击重试
+                </Button>
+              </Space>
+            }
+          />
         )}
       </Card>
 
@@ -348,6 +446,111 @@ const DeviceManagementPage: React.FC = () => {
           </div>
           <Text type="secondary">扫码可直接连接本设备</Text>
         </div>
+      </Modal>
+
+      {/* 无人值守访问设置弹窗 */}
+      <Modal
+        title="无人值守访问设置"
+        open={unattendedModalVisible}
+        onOk={handleSaveUnattendedSettings}
+        onCancel={() => setUnattendedModalVisible(false)}
+        okText="保存设置"
+        cancelText="取消"
+      >
+        <Form form={unattendedForm} layout="vertical">
+          <Form.Item
+            label="启用无人值守访问"
+            extra="开启后，已授权的设备可以无需确认直接连接"
+          >
+            <Switch
+              checked={unattendedSettings.enabled}
+              onChange={(checked) => setUnattendedSettings({
+                ...unattendedSettings,
+                enabled: checked
+              })}
+            />
+            {unattendedSettings.enabled && (
+              <Tag color="success" style={{ marginLeft: 12 }}>
+                已启用
+              </Tag>
+            )}
+          </Form.Item>
+
+          <Form.Item
+            label="连接时仍需密码验证"
+            extra="即使开启无人值守，连接时仍需输入访问密码"
+          >
+            <Switch
+              checked={unattendedSettings.requirePassword}
+              onChange={(checked) => setUnattendedSettings({
+                ...unattendedSettings,
+                requirePassword: checked
+              })}
+            />
+            {unattendedSettings.requirePassword && (
+              <Text type="secondary" style={{ display: 'block', marginTop: 8 }}>
+                密码验证：启用
+              </Text>
+            )}
+            {!unattendedSettings.requirePassword && (
+              <Text type="warning" style={{ display: 'block', marginTop: 8 }}>
+                安全提示：关闭密码验证后，任何授权设备均可直接连接
+              </Text>
+            )}
+          </Form.Item>
+
+          <Form.Item
+            label="有效期（可选）"
+            extra="设置后，无人值守访问将在指定时间后自动失效"
+          >
+            <DatePicker
+              value={unattendedSettings.trustedUntil}
+              onChange={(date) => setUnattendedSettings({
+                ...unattendedSettings,
+                trustedUntil: date
+              })}
+              showTime
+              format="YYYY-MM-DD HH:mm"
+              placeholder="不设置则永久有效"
+              style={{ width: '100%' }}
+            />
+            {unattendedSettings.trustedUntil && (
+              <Button
+                type="link"
+                size="small"
+                onClick={() => setUnattendedSettings({
+                  ...unattendedSettings,
+                  trustedUntil: null
+                })}
+                style={{ padding: 0, marginTop: 4 }}
+              >
+                清除有效期
+              </Button>
+            )}
+          </Form.Item>
+
+          <Divider />
+
+          <Form.Item
+            label="当前设备信息"
+          >
+            <Descriptions column={1} size="small" bordered>
+              <Descriptions.Item label="设备码">
+                <Text strong style={{ fontFamily: 'monospace' }}>
+                  {myDevice?.deviceCode}
+                </Text>
+              </Descriptions.Item>
+              <Descriptions.Item label="在线状态">
+                <Tag color={myDevice?.isOnline ? 'green' : 'default'}>
+                  {myDevice?.isOnline ? '在线' : '离线'}
+                </Tag>
+              </Descriptions.Item>
+              <Descriptions.Item label="已绑定控制器数量">
+                <Text>{myDevice?.boundDevices?.length || 0} 台</Text>
+              </Descriptions.Item>
+            </Descriptions>
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   );

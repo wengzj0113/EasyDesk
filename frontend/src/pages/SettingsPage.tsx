@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Card, Typography, Button, List, Switch, Slider, Select, Space, Divider, message } from 'antd';
+import { Card, Typography, Button, List, Switch, Slider, Select, Space, Divider, message, Modal } from 'antd';
 import {
-  ArrowLeftOutlined,
-  SettingOutlined,
   UserOutlined,
   BellOutlined,
   LockOutlined,
@@ -14,8 +12,10 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { useStore } from '../store/useStore';
 import { settingsAPI } from '../services/api';
+import PageHeader from '../components/PageHeader';
+import LoginModal from '../components/LoginModal';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 
 interface UserSettings {
   videoQuality: string;
@@ -42,6 +42,10 @@ const SettingsPage: React.FC = () => {
   const [settings, setSettings] = useState<UserSettings>(defaultSettings);
   const [, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [loginModalVisible, setLoginModalVisible] = useState(false);
+
+  // Track unsaved changes
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   // 加载设置
   useEffect(() => {
@@ -75,14 +79,36 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleLogout = () => {
-    clearUser();
-    message.success('已退出登录');
-    navigate('/');
+    Modal.confirm({
+      title: '确定退出登录？',
+      content: '退出后需要重新登录才能使用高级功能',
+      okText: '确定退出',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      onOk: () => {
+        clearUser();
+        message.success('已退出登录');
+        navigate('/');
+      },
+    });
   };
 
   const updateSetting = <K extends keyof UserSettings>(key: K, value: UserSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
+    setHasUnsavedChanges(true);
   };
+
+  // Unsaved changes warning
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const settingsItems = [
     {
@@ -172,15 +198,11 @@ const SettingsPage: React.FC = () => {
   ];
 
   return (
-    <div style={{ padding: '50px', maxWidth: 800, margin: '0 auto' }}>
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ marginBottom: 24 }}>
-        返回首页
-      </Button>
-
-      <Title level={3}>
-        <SettingOutlined style={{ marginRight: 8 }} />
-        设置
-      </Title>
+    <div style={{ padding: 'clamp(16px, 4vw, 50px)', maxWidth: 800, margin: '0 auto' }}>
+      <PageHeader
+        title="设置"
+        subtitle="配置应用偏好设置"
+      />
 
       {/* 用户信息 */}
       <Card style={{ marginBottom: 24 }} title={<><UserOutlined /> 账户信息</>}>
@@ -195,12 +217,12 @@ const SettingsPage: React.FC = () => {
               </Text>
             </div>
             <Divider />
-            <Button danger onClick={handleLogout}>退出登录</Button>
+            <Button danger onClick={handleLogout} aria-label="退出登录">退出登录</Button>
           </Space>
         ) : (
           <div>
             <Text type="secondary">未登录</Text>
-            <Button type="primary" style={{ marginLeft: 16 }} onClick={() => navigate('/')}>
+            <Button type="primary" style={{ marginLeft: 16 }} onClick={() => setLoginModalVisible(true)}>
               登录
             </Button>
           </div>
@@ -244,6 +266,16 @@ const SettingsPage: React.FC = () => {
           <Text type="secondary">极简远程桌面，简单远控</Text>
         </Space>
       </Card>
+
+      {/* 登录弹窗 */}
+      <LoginModal
+        visible={loginModalVisible}
+        onClose={() => setLoginModalVisible(false)}
+        onLoginSuccess={() => {
+          setLoginModalVisible(false);
+          message.success('登录成功');
+        }}
+      />
     </div>
   );
 };

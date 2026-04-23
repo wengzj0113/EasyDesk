@@ -1,23 +1,10 @@
 import { io, Socket } from 'socket.io-client';
+import { createLogger } from '../utils/logger';
+
+const logger = createLogger('Socket');
 
 // Socket.IO 服务器地址
 const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3001';
-
-// 是否为开发环境
-const isDev = process.env.NODE_ENV === 'development';
-
-// 开发环境日志函数
-const devLog = (...args: unknown[]) => {
-  if (isDev) {
-    devLog('[Socket]', ...args);
-  }
-};
-
-const devError = (...args: unknown[]) => {
-  if (isDev) {
-    devError('[Socket Error]', ...args);
-  }
-};
 
 // WebSocket 事件数据类型定义
 export interface RegisteredData {
@@ -77,6 +64,81 @@ export interface ControlCommandData {
   data?: unknown;
 }
 
+// Shell相关类型定义
+export interface ShellCommandData {
+  command: string;
+  sessionId: string;
+  fromDeviceCode: string;
+  fromSocketId?: string;
+  timestamp?: number;
+}
+
+export interface ShellResultData {
+  sessionId: string;
+  output: string;
+  error?: string;
+  exitCode: number;
+  timestamp?: number;
+}
+
+export interface ShellErrorData {
+  sessionId: string;
+  error: string;
+}
+
+// 剪贴板相关类型定义
+export interface ClipboardSyncData {
+  content: string;
+  contentType: 'text' | 'image';
+  direction: 'to' | 'from';
+  fromDeviceCode?: string;
+}
+
+export interface ClipboardHistoryItem {
+  id?: string;
+  content: string;
+  contentType: 'text' | 'image';
+  direction: 'to' | 'from';
+  timestamp: number;
+}
+
+export interface ClipboardHistoryResponseData {
+  history: ClipboardHistoryItem[];
+}
+
+// 电源操作类型
+export type PowerAction = 'shutdown' | 'restart' | 'lock' | 'sleep';
+
+export interface PowerCommandData {
+  deviceCode: string;
+  action: PowerAction;
+  confirmCode?: string;
+}
+
+export interface PowerCommandSentData {
+  deviceCode: string;
+  action: PowerAction;
+  confirmCode: string;
+}
+
+export interface PowerActionData {
+  action: PowerAction;
+  confirmCode: string;
+  fromDeviceCode: string;
+  timestamp: number;
+}
+
+export interface PowerResultData {
+  action: PowerAction;
+  success: boolean;
+  error?: string;
+  timestamp: number;
+}
+
+export interface PowerErrorData {
+  error: string;
+}
+
 // Socket 事件类型
 export type SocketEventType =
   | 'registered'
@@ -89,9 +151,18 @@ export type SocketEventType =
   | 'ice-candidate'
   | 'prepare-sdp'
   | 'control-command'
+  | 'shell-command'
+  | 'shell-result'
+  | 'shell-error'
+  | 'clipboard-sync'
+  | 'clipboard-history-response'
   | 'device-online'
   | 'device-offline'
-  | 'error';
+  | 'error'
+  | 'power-action'
+  | 'power-result'
+  | 'power-command-sent'
+  | 'power-error';
 
 class SocketService {
   private socket: Socket | null = null;
@@ -112,9 +183,18 @@ class SocketService {
   private onICECandidate: ((data: ICECandidateData) => void) | null = null;
   private onPrepareSDP: ((data: PrepareSDPData) => void) | null = null;
   private onControlCommand: ((data: ControlCommandData) => void) | null = null;
+  private onShellCommand: ((data: ShellCommandData) => void) | null = null;
+  private onShellResult: ((data: ShellResultData) => void) | null = null;
+  private onShellError: ((data: ShellErrorData) => void) | null = null;
+  private onClipboardSync: ((data: ClipboardSyncData) => void) | null = null;
+  private onClipboardHistoryResponse: ((data: ClipboardHistoryResponseData) => void) | null = null;
   private onDeviceOnline: ((data: DeviceOnlineData) => void) | null = null;
   private onDeviceOffline: ((data: DeviceOfflineData) => void) | null = null;
   private onError: ((data: ErrorData) => void) | null = null;
+  private onPowerAction: ((data: PowerActionData) => void) | null = null;
+  private onPowerResult: ((data: PowerResultData) => void) | null = null;
+  private onPowerCommandSent: ((data: PowerCommandSentData) => void) | null = null;
+  private onPowerError: ((data: PowerErrorData) => void) | null = null;
 
   // 断开连接
   disconnect() {
@@ -127,20 +207,59 @@ class SocketService {
   }
 
   // 清理所有事件回调
-  off() {
-    this.onRegistered = null;
-    this.onConnectionRequested = null;
-    this.onConnectionAccepted = null;
-    this.onConnectionRejected = null;
-    this.onIncomingConnection = null;
-    this.onSDPOffer = null;
-    this.onSDPAnswer = null;
-    this.onICECandidate = null;
-    this.onPrepareSDP = null;
-    this.onControlCommand = null;
-    this.onDeviceOnline = null;
-    this.onDeviceOffline = null;
-    this.onError = null;
+  off<T extends SocketEventType>(event?: T, _callback?: (data: typeof this.eventTypeMap[T]) => void) {
+    // 如果没有指定事件，清空所有回调
+    if (event === undefined) {
+      this.onRegistered = null;
+      this.onConnectionRequested = null;
+      this.onConnectionAccepted = null;
+      this.onConnectionRejected = null;
+      this.onIncomingConnection = null;
+      this.onSDPOffer = null;
+      this.onSDPAnswer = null;
+      this.onICECandidate = null;
+      this.onPrepareSDP = null;
+      this.onControlCommand = null;
+      this.onShellCommand = null;
+      this.onShellResult = null;
+      this.onShellError = null;
+      this.onClipboardSync = null;
+      this.onClipboardHistoryResponse = null;
+      this.onDeviceOnline = null;
+      this.onDeviceOffline = null;
+      this.onError = null;
+      this.onPowerAction = null;
+      this.onPowerResult = null;
+      this.onPowerCommandSent = null;
+      this.onPowerError = null;
+      return;
+    }
+
+    // 否则清空指定事件的回调
+    switch (event) {
+      case 'registered': this.onRegistered = null; break;
+      case 'connection-requested': this.onConnectionRequested = null; break;
+      case 'connection-accepted': this.onConnectionAccepted = null; break;
+      case 'connection-rejected': this.onConnectionRejected = null; break;
+      case 'incoming-connection': this.onIncomingConnection = null; break;
+      case 'sdp-offer': this.onSDPOffer = null; break;
+      case 'sdp-answer': this.onSDPAnswer = null; break;
+      case 'ice-candidate': this.onICECandidate = null; break;
+      case 'prepare-sdp': this.onPrepareSDP = null; break;
+      case 'control-command': this.onControlCommand = null; break;
+      case 'shell-command': this.onShellCommand = null; break;
+      case 'shell-result': this.onShellResult = null; break;
+      case 'shell-error': this.onShellError = null; break;
+      case 'clipboard-sync': this.onClipboardSync = null; break;
+      case 'clipboard-history-response': this.onClipboardHistoryResponse = null; break;
+      case 'device-online': this.onDeviceOnline = null; break;
+      case 'device-offline': this.onDeviceOffline = null; break;
+      case 'error': this.onError = null; break;
+      case 'power-action': this.onPowerAction = null; break;
+      case 'power-result': this.onPowerResult = null; break;
+      case 'power-command-sent': this.onPowerCommandSent = null; break;
+      case 'power-error': this.onPowerError = null; break;
+    }
   }
 
   // 连接服务器
@@ -172,9 +291,18 @@ class SocketService {
     'ice-candidate': null as unknown as ICECandidateData,
     'prepare-sdp': null as unknown as PrepareSDPData,
     'control-command': null as unknown as ControlCommandData,
+    'shell-command': null as unknown as ShellCommandData,
+    'shell-result': null as unknown as ShellResultData,
+    'shell-error': null as unknown as ShellErrorData,
+    'clipboard-sync': null as unknown as ClipboardSyncData,
+    'clipboard-history-response': null as unknown as ClipboardHistoryResponseData,
     'device-online': null as unknown as DeviceOnlineData,
     'device-offline': null as unknown as DeviceOfflineData,
     'error': null as unknown as ErrorData,
+    'power-action': null as unknown as PowerActionData,
+    'power-result': null as unknown as PowerResultData,
+    'power-command-sent': null as unknown as PowerCommandSentData,
+    'power-error': null as unknown as PowerErrorData,
   };
 
   // 设置事件回调 - 使用泛型确保类型安全
@@ -190,9 +318,18 @@ class SocketService {
       case 'ice-candidate': this.onICECandidate = callback as (data: ICECandidateData) => void; break;
       case 'prepare-sdp': this.onPrepareSDP = callback as (data: PrepareSDPData) => void; break;
       case 'control-command': this.onControlCommand = callback as (data: ControlCommandData) => void; break;
+      case 'shell-command': this.onShellCommand = callback as (data: ShellCommandData) => void; break;
+      case 'shell-result': this.onShellResult = callback as (data: ShellResultData) => void; break;
+      case 'shell-error': this.onShellError = callback as (data: ShellErrorData) => void; break;
+      case 'clipboard-sync': this.onClipboardSync = callback as (data: ClipboardSyncData) => void; break;
+      case 'clipboard-history-response': this.onClipboardHistoryResponse = callback as (data: ClipboardHistoryResponseData) => void; break;
       case 'device-online': this.onDeviceOnline = callback as (data: DeviceOnlineData) => void; break;
       case 'device-offline': this.onDeviceOffline = callback as (data: DeviceOfflineData) => void; break;
       case 'error': this.onError = callback as (data: ErrorData) => void; break;
+      case 'power-action': this.onPowerAction = callback as (data: PowerActionData) => void; break;
+      case 'power-result': this.onPowerResult = callback as (data: PowerResultData) => void; break;
+      case 'power-command-sent': this.onPowerCommandSent = callback as (data: PowerCommandSentData) => void; break;
+      case 'power-error': this.onPowerError = callback as (data: PowerErrorData) => void; break;
     }
   }
 
@@ -201,89 +338,143 @@ class SocketService {
     if (!this.socket) return;
 
     this.socket.on('registered', (data: RegisteredData) => {
-      devLog('Registered:', data);
+      logger.debug('Registered:', data);
       this.onRegistered?.(data);
     });
 
     this.socket.on('connection-requested', (data: { targetDeviceCode: string }) => {
-      devLog('Connection requested:', data);
+      logger.debug('Connection requested:', data);
       this.onConnectionRequested?.(data);
     });
 
     this.socket.on('connection-accepted', (data: ConnectionAcceptedData) => {
-      devLog('Connection accepted:', data);
+      logger.debug('Connection accepted:', data);
       this.onConnectionAccepted?.(data);
     });
 
     this.socket.on('connection-rejected', (data: ConnectionRejectedData) => {
-      devLog('Connection rejected:', data);
+      logger.debug('Connection rejected:', data);
       this.onConnectionRejected?.(data);
     });
 
     this.socket.on('incoming-connection', (data: ConnectionRequestData) => {
-      devLog('Incoming connection:', data);
+      logger.debug('Incoming connection:', data);
       this.onIncomingConnection?.(data);
     });
 
     this.socket.on('sdp-offer', (data: SDPOfferData) => {
-      devLog('SDP Offer received');
+      logger.debug('SDP Offer received');
       this.onSDPOffer?.(data);
     });
 
     this.socket.on('sdp-answer', (data: SDPAnswerData) => {
-      devLog('SDP Answer received');
+      logger.debug('SDP Answer received');
       this.onSDPAnswer?.(data);
     });
 
     this.socket.on('ice-candidate', (data: ICECandidateData) => {
-      devLog('ICE Candidate received');
+      logger.debug('ICE Candidate received');
       this.onICECandidate?.(data);
     });
 
     this.socket.on('prepare-sdp', (data: PrepareSDPData) => {
-      devLog('Prepare SDP received');
+      logger.debug('Prepare SDP received');
       this.onPrepareSDP?.(data);
     });
 
     this.socket.on('control-command', (data: ControlCommandData) => {
-      devLog('Control command:', data);
+      logger.debug('Control command:', data);
       this.onControlCommand?.(data);
     });
 
+    // Shell命令（被控端接收）
+    this.socket.on('shell-command', (data: ShellCommandData) => {
+      logger.debug('Shell command received:', data);
+      this.onShellCommand?.(data);
+    });
+
+    // Shell结果（控制端接收）
+    this.socket.on('shell-result', (data: ShellResultData) => {
+      logger.debug('Shell result received');
+      this.onShellResult?.(data);
+    });
+
+    // Shell错误（控制端接收）
+    this.socket.on('shell-error', (data: ShellErrorData) => {
+      logger.error('Shell error:', data);
+      this.onShellError?.(data);
+    });
+
+    // 剪贴板同步事件
+    this.socket.on('clipboard-sync', (data: ClipboardSyncData) => {
+      logger.debug('Clipboard sync received:', data);
+      this.onClipboardSync?.(data);
+    });
+
+    // 剪贴板历史响应
+    this.socket.on('clipboard-history-response', (data: ClipboardHistoryResponseData) => {
+      logger.debug('Clipboard history response received');
+      this.onClipboardHistoryResponse?.(data);
+    });
+
     this.socket.on('device-online', (data: DeviceOnlineData) => {
-      devLog('Device online:', data);
+      logger.debug('Device online:', data);
       this.onDeviceOnline?.(data);
     });
 
     this.socket.on('device-offline', (data: DeviceOfflineData) => {
-      devLog('Device offline:', data);
+      logger.debug('Device offline:', data);
       this.onDeviceOffline?.(data);
     });
 
     this.socket.on('error', (data: ErrorData) => {
-      devError('Socket error:', data);
+      logger.error('Socket error:', data);
       this.onError?.(data);
     });
 
+    // 电源操作（被控端接收）
+    this.socket.on('power-action', (data: PowerActionData) => {
+      logger.debug('Power action received:', data);
+      this.onPowerAction?.(data);
+    });
+
+    // 电源操作结果（控制端接收）
+    this.socket.on('power-result', (data: PowerResultData) => {
+      logger.debug('Power result received:', data);
+      this.onPowerResult?.(data);
+    });
+
+    // 电源命令已发送确认（控制端接收）
+    this.socket.on('power-command-sent', (data: PowerCommandSentData) => {
+      logger.debug('Power command sent:', data);
+      this.onPowerCommandSent?.(data);
+    });
+
+    // 电源操作错误
+    this.socket.on('power-error', (data: PowerErrorData) => {
+      logger.error('Power error:', data);
+      this.onPowerError?.(data);
+    });
+
     this.socket.on('disconnect', () => {
-      devLog('Disconnected from server');
+      logger.debug('Disconnected from server');
       this.stopHeartbeat();
     });
 
     this.socket.on('connect', () => {
-      devLog('Connected to server');
+      logger.debug('Connected to server');
       this.reconnectAttempts = 0;
       this.startHeartbeat();
     });
 
     this.socket.on('reconnect_attempt', () => {
       this.reconnectAttempts++;
-      devLog(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
+      logger.debug(`Reconnection attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts}`);
     });
 
     // 心跳响应
     this.socket.on('heartbeat-ack', () => {
-      devLog('Heartbeat acknowledged');
+      logger.debug('Heartbeat acknowledged');
     });
   }
 
@@ -365,6 +556,50 @@ class SocketService {
   // 是否已连接
   isConnected(): boolean {
     return this.socket?.connected || false;
+  }
+
+  // 通用事件发送
+  emit(event: string, data?: unknown) {
+    this.socket?.emit(event, data);
+  }
+
+  // 发送Shell命令（控制端使用）
+  executeShell(deviceCode: string, command: string, sessionId: string) {
+    this.socket?.emit('shell-execute', {
+      deviceCode,
+      command,
+      sessionId,
+    });
+  }
+
+  // 发送Shell响应（被控端使用）
+  respondShell(targetDeviceCode: string, sessionId: string, output: string, error: string, exitCode: number) {
+    this.socket?.emit('shell-response', {
+      targetDeviceCode,
+      sessionId,
+      output,
+      error,
+      exitCode,
+    });
+  }
+
+  // 发送电源控制命令（控制端使用）
+  sendPowerCommand(deviceCode: string, action: PowerAction, confirmCode?: string) {
+    this.socket?.emit('power-command', {
+      deviceCode,
+      action,
+      confirmCode,
+    });
+  }
+
+  // 发送电源确认（被控端使用，通知控制端执行结果）
+  sendPowerConfirmed(targetDeviceId: string, action: PowerAction, success: boolean, error?: string) {
+    this.socket?.emit('power-confirmed', {
+      targetDeviceId,
+      action,
+      success,
+      error,
+    });
   }
 }
 

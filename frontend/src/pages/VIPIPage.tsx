@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Card, Row, Col, Button, Tag, message, Modal, Spin, List, Typography } from 'antd';
+import { Card, Row, Col, Button, Tag, message, Modal, List, Typography, Skeleton } from 'antd';
 import { ArrowLeftOutlined, CrownOutlined, CheckCircleOutlined, ThunderboltOutlined, CrownFilled } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { vipAPI } from '../services/api';
@@ -107,8 +107,16 @@ const VIPIPage: React.FC = () => {
 
   if (vipLoading) {
     return (
-      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <Spin size="large" tip="加载中..." />
+      <div style={{ padding: '50px', maxWidth: 1200, margin: '0 auto' }}>
+        <Row gutter={[16, 16]}>
+          {[1, 2, 3].map(i => (
+            <Col xs={24} sm={12} md={8} key={i}>
+              <Card>
+                <Skeleton active paragraph={{ rows: 4 }} />
+              </Card>
+            </Col>
+          ))}
+        </Row>
       </div>
     );
   }

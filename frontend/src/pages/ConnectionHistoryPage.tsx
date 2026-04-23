@@ -1,11 +1,12 @@
-import React, { useEffect, useState, useCallback } from 'react';
-import { Card, Table, Tag, Typography, Button, Space, Empty, Spin, DatePicker, Row, Col, message } from 'antd';
-import { ArrowLeftOutlined, ReloadOutlined, DesktopOutlined, HistoryOutlined } from '@ant-design/icons';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { Card, Table, Tag, Typography, Button, Space, Empty, DatePicker, Row, Col, message, Skeleton } from 'antd';
+import { ReloadOutlined, DesktopOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { connectionAPI } from '../services/api';
+import PageHeader from '../components/PageHeader';
 import type { RangePickerProps } from 'antd/es/date-picker';
 
-const { Title, Text } = Typography;
+const { Text } = Typography;
 const { RangePicker } = DatePicker;
 
 interface ConnectionRecord {
@@ -30,6 +31,12 @@ const ConnectionHistoryPage: React.FC = () => {
   const [dateRange, setDateRange] = useState<[string, string] | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
+  const [mounted, setMounted] = useState(false);
+
+  // Mount animation
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const fetchConnections = useCallback(async (p = 1) => {
     setLoading(true);
@@ -43,8 +50,7 @@ const ConnectionHistoryPage: React.FC = () => {
       setConnections(res.connections || []);
       setTotal(res.pagination?.total || 0);
     } catch (error: unknown) {
-      const errMsg = error instanceof Error ? error.message : '未知错误';
-      message.error(`获取连接历史失败: ${errMsg}`);
+      message.error('暂时无法加载连接历史，请稍后重试');
     } finally {
       setLoading(false);
     }
@@ -75,7 +81,7 @@ const ConnectionHistoryPage: React.FC = () => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
-  const columns = [
+  const columns = useMemo(() => [
     {
       title: '时间',
       dataIndex: 'startTime',
@@ -139,6 +145,7 @@ const ConnectionHistoryPage: React.FC = () => {
         <Button
           type="link"
           icon={<DesktopOutlined />}
+          aria-label={`重连设备 ${record.deviceId?.deviceName || ''}`}
           onClick={() => {
             if (record.deviceId?.deviceCode) {
               navigate('/connection', { state: { deviceCode: record.deviceId.deviceCode, role: 'controller' } });
@@ -151,26 +158,29 @@ const ConnectionHistoryPage: React.FC = () => {
         </Button>
       ),
     },
-  ];
+  ], [navigate]);
 
   if (loading && connections.length === 0) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <Spin size="large" tip="加载中..." />
+        <Skeleton active paragraph={{ rows: 6 }} />
       </div>
     );
   }
 
   return (
-    <div style={{ padding: '50px', maxWidth: 1200, margin: '0 auto' }}>
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ marginBottom: 24 }}>
-        返回首页
-      </Button>
-
-      <Title level={3}>
-        <HistoryOutlined style={{ marginRight: 8 }} />
-        连接历史
-      </Title>
+    <div style={{
+      padding: 'clamp(16px, 4vw, 50px)',
+      maxWidth: 1200,
+      margin: '0 auto',
+      opacity: mounted ? 1 : 0,
+      transform: mounted ? 'translateY(0)' : 'translateY(20px)',
+      transition: 'opacity 0.3s ease-out, transform 0.3s ease-out',
+    }}>
+      <PageHeader
+        title="连接历史"
+        subtitle="查看历史连接记录"
+      />
 
       <Card>
         <Row justify="space-between" align="middle" style={{ marginBottom: 16 }}>

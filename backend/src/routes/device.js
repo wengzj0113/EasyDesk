@@ -78,7 +78,8 @@ router.get('/code', authMiddleware, async (req, res) => {
       deviceCode: device.deviceCode,
       deviceName: device.deviceName,
       isOnline: device.isOnline,
-      isNew: false
+      isNew: false,
+      unattendedAccess: device.unattendedAccess
     });
   } catch (error) {
     logError('获取设备码失败', error);
@@ -227,6 +228,104 @@ router.delete('/:deviceId', authMiddleware, async (req, res) => {
   } catch (error) {
     logError('解绑设备失败', error);
     res.status(500).json({ error: '解绑设备失败' });
+  }
+});
+
+// 更新无人值守访问设置
+router.post('/unattended', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { deviceId, enabled, trustedUntil, allowedControllers, requirePassword } = req.body;
+
+    const device = await Device.findOne({ userId });
+    if (!device) {
+      return res.status(404).json({ error: '设备不存在' });
+    }
+
+    // 如果提供了 deviceId（用于更新其他设备），需要验证权限
+    if (deviceId && deviceId !== device._id.toString()) {
+      // 检查目标设备是否在绑定列表中
+      const isBound = device.boundDevices.some(
+        bound => bound.deviceId.toString() === deviceId
+      );
+      if (!isBound) {
+        return res.status(403).json({ error: '无权修改该设备设置' });
+      }
+      const targetDevice = await Device.findById(deviceId);
+      if (!targetDevice) {
+        return res.status(404).json({ error: '目标设备不存在' });
+      }
+      targetDevice.unattendedAccess = {
+        enabled: enabled !== undefined ? enabled : false,
+        trustedUntil: trustedUntil || null,
+        allowedControllers: allowedControllers || [],
+        requirePassword: requirePassword !== undefined ? requirePassword : true,
+      };
+      await targetDevice.save();
+      return res.json({ success: true, message: '无人值守访问设置已更新' });
+    }
+
+    // 更新本机设备
+    device.unattendedAccess = {
+      enabled: enabled !== undefined ? enabled : false,
+      trustedUntil: trustedUntil || null,
+      allowedControllers: allowedControllers || [],
+      requirePassword: requirePassword !== undefined ? requirePassword : true,
+    };
+    await device.save();
+
+    res.json({ success: true, message: '无人值守访问设置已更新' });
+  } catch (error) {
+    logError('更新无人值守设置失败', error);
+    res.status(500).json({ error: '更新无人值守设置失败' });
+  }
+});
+
+// 获取无人值守访问设置
+router.get('/unattended/:deviceId', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { deviceId } = req.params;
+
+    const device = await Device.findOne({ userId });
+    if (!device) {
+      return res.status(404).json({ error: '设备不存在' });
+    }
+
+    // 检查是否有权限查看该设备
+    const targetDeviceId = deviceId || device._id.toString();
+    if (deviceId === device._id.toString()) {
+      // 查看本机设备
+      return res.json({
+        enabled: device.unattendedAccess?.enabled || false,
+        trustedUntil: device.unattendedAccess?.trustedUntil || null,
+        allowedControllers: device.unattendedAccess?.allowedControllers || [],
+        requirePassword: device.unattendedAccess?.requirePassword !== false,
+      });
+    }
+
+    // 检查目标设备是否在绑定列表中
+    const boundDevice = device.boundDevices.find(
+      bound => bound.deviceId.toString() === deviceId
+    );
+    if (!boundDevice) {
+      return res.status(403).json({ error: '无权查看该设备设置' });
+    }
+
+    const targetDevice = await Device.findById(deviceId);
+    if (!targetDevice) {
+      return res.status(404).json({ error: '设备不存在' });
+    }
+
+    res.json({
+      enabled: targetDevice.unattendedAccess?.enabled || false,
+      trustedUntil: targetDevice.unattendedAccess?.trustedUntil || null,
+      allowedControllers: targetDevice.unattendedAccess?.allowedControllers || [],
+      requirePassword: targetDevice.unattendedAccess?.requirePassword !== false,
+    });
+  } catch (error) {
+    logError('获取无人值守设置失败', error);
+    res.status(500).json({ error: '获取无人值守设置失败' });
   }
 });
 

@@ -112,5 +112,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // 打印功能
   printPage: (options) => ipcRenderer.invoke('print-page', options),
-  printToPdf: (options) => ipcRenderer.invoke('print-to-pdf', options)
+  printToPdf: (options) => ipcRenderer.invoke('print-to-pdf', options),
+
+  // Shell 执行
+  shellExecute: (command) => ipcRenderer.invoke('shell-execute', command),
+
+  // 监听 Shell 输出（实时输出）
+  onShellOutput: (callback) => {
+    ipcRenderer.on('shell-output', (event, data) => callback(data));
+  },
+
+  // 电源控制功能
+  powerAction: (action) => ipcRenderer.invoke('power-action', action),
+  powerSupportedActions: () => ipcRenderer.invoke('power-supported-actions'),
 });
